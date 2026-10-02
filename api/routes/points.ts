@@ -146,9 +146,10 @@ router.get('/:id/materials', (req, res) => {
     return;
   }
 
+  // 字段契约与前端 MaterialItem 类型保持一致（path/size，同 /api/admin/point/:id 的 materials）
   const materials = db
     .prepare(
-      `SELECT id, point_id, material_type AS type, file_path, file_size, upload_time
+      `SELECT id, material_type AS type, file_path AS path, file_size AS size, upload_time
        FROM material
        WHERE point_id = ?
        ORDER BY id DESC`,
