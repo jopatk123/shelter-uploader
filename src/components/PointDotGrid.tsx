@@ -79,12 +79,12 @@ export default function PointDotGrid({
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-3">
           <h3 className="font-mono text-sm text-base-200">
-              点位状态总览
-              <span className="ml-2 text-base-400">
-                完成 {completedCount} · 部分 {partialCount} · 共 {points.length}
-              </span>
-              <span className="ml-2 text-accent font-bold">{totalPercent}%</span>
-            </h3>
+            点位状态总览
+            <span className="ml-2 text-base-400">
+              完成 {completedCount} · 部分 {partialCount} · 共 {points.length}
+            </span>
+            <span className="ml-2 text-accent font-bold">{totalPercent}%</span>
+          </h3>
           {onDownloadStats && (
             <button
               onClick={onDownloadStats}

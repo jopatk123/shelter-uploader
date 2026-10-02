@@ -75,7 +75,9 @@ export default function UploadPage() {
               <span className="text-accent font-mono font-bold text-sm">U</span>
             </div>
             <div>
-              <h1 className="font-mono text-base text-base-100">福州沿海码头避风点点位素材上传系统</h1>
+              <h1 className="font-mono text-base text-base-100">
+                福州沿海码头避风点点位素材上传系统
+              </h1>
               <p className="text-xs text-base-400">
                 福州沿海码头避风点 · {points.length}个点位 ·{' '}
                 <span className="text-accent font-bold">{completedPercent}%</span> 已完成

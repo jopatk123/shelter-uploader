@@ -124,12 +124,9 @@ export default function AdminPage() {
   // 前端筛选逻辑（与后端保持一致）
   const filteredPoints = useMemo(() => {
     if (filter === 'all') return points;
-    if (filter === 'img_only')
-      return points.filter((p) => p.has_image && !p.has_video);
-    if (filter === 'video_only')
-      return points.filter((p) => !p.has_image && p.has_video);
-    if (filter === 'completed')
-      return points.filter((p) => p.has_image || p.has_video);
+    if (filter === 'img_only') return points.filter((p) => p.has_image && !p.has_video);
+    if (filter === 'video_only') return points.filter((p) => !p.has_image && p.has_video);
+    if (filter === 'completed') return points.filter((p) => p.has_image || p.has_video);
     return points;
   }, [points, filter]);
 
@@ -354,9 +351,7 @@ export default function AdminPage() {
             >
               {f.label}
               <span
-                className={`ml-1.5 ${
-                  filter === f.value ? 'text-base-900/70' : 'text-base-500'
-                }`}
+                className={`ml-1.5 ${filter === f.value ? 'text-base-900/70' : 'text-base-500'}`}
               >
                 ({filterCounts[f.value]})
               </span>

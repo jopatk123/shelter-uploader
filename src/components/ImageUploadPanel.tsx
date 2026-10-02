@@ -8,7 +8,12 @@ import { useState, useRef, useEffect } from 'react';
 import ProgressBar from '@/components/ProgressBar';
 import { uploadFile, generateFileId, type UploadProgress } from '@/lib/upload';
 import { compressImageIfNeeded, shouldCompress } from '@/lib/imageCompress';
-import { checkImageReadable, hasGpsExif, checkBlackPixelRatio, MAX_BLACK_RATIO } from '@/lib/imageCheck';
+import {
+  checkImageReadable,
+  hasGpsExif,
+  checkBlackPixelRatio,
+  MAX_BLACK_RATIO,
+} from '@/lib/imageCheck';
 
 interface Props {
   pointId: number | null;
