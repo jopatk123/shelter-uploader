@@ -8,6 +8,7 @@ import VideoUploadPanel from '@/components/VideoUploadPanel';
 import MaterialWall from '@/components/MaterialWall';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import { fetchPoints, fetchMaterials, downloadPublicStatsCsv } from '@/lib/api';
+import { getRuntimeConfig } from '@/lib/runtimeConfig';
 import type { PointStatus, MaterialItem } from '@/types';
 
 export default function UploadPage() {
@@ -61,6 +62,8 @@ export default function UploadPage() {
   const completedCount = points.filter((p) => p.uploaded_count > 0).length;
   const completedPercent =
     points.length > 0 ? Math.round((completedCount / points.length) * 100) : 0;
+  // 视频上限取自后端运行配置，避免与 VIDEO_MAX_SIZE_MB 脱节
+  const videoMaxSizeMB = getRuntimeConfig().videoMaxSizeMB;
 
   const handleUploadComplete = useCallback(() => {
     loadPoints();
@@ -245,10 +248,10 @@ export default function UploadPage() {
       {/* 视频超限指引弹窗 */}
       {showOverLimit && (
         <ConfirmDialog
-          title="视频超过100MB限制"
+          title={`视频超过${videoMaxSizeMB}MB限制`}
           message={
             <div className="space-y-2">
-              <p>当前视频超过100MB限制，请按以下步骤压缩后上传：</p>
+              <p>当前视频超过{videoMaxSizeMB}MB限制，请按以下步骤压缩后上传：</p>
               <ol className="list-decimal list-inside text-base-300 space-y-1 pl-2">
                 <li>将视频拖拽至微信文件传输助手/好友发送</li>
                 <li>微信会自动压缩视频</li>

@@ -110,7 +110,7 @@ export default function MaterialWall({ pointId, materials, loading, onChanged }:
           console.warn('纯黑像素校验异常，跳过', file.name);
         }
 
-        // 压缩到 300KB 以内（尽量保留 EXIF）
+        // 压缩到后端配置的图片上限以内（默认 500KB，尽量保留 EXIF）
         if (shouldCompress(file)) {
           setReplaceProgress({
             phase: 'compressing',

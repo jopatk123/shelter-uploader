@@ -9,7 +9,12 @@ import fse from 'fs-extra';
 import { fileURLToPath } from 'url';
 import cron from 'node-cron';
 import { db, dbStatus, initDatabase, DATA_DIR, TEMP_CHUNK_DIR, STORAGE_DIR } from './db.js';
-import { CHUNK_SIZE_MB, VIDEO_MAX_SIZE_MB } from './config.js';
+import {
+  CHUNK_SIZE_MB,
+  VIDEO_MAX_SIZE_MB,
+  IMAGE_COMPRESS_TARGET_KB,
+  CORS_ORIGIN,
+} from './config.js';
 import pointsRoutes from './routes/points.js';
 import uploadRoutes from './routes/upload.js';
 import adminRoutes from './routes/admin.js';
@@ -28,7 +33,17 @@ try {
 
 const app: express.Application = express();
 
-app.use(cors());
+/**
+ * 跨域策略：前后端同源部署时浏览器不会发起跨域请求，故默认不启用 CORS。
+ * 仅在显式配置 CORS_ORIGIN（逗号分隔白名单）时才开放，避免任意站点跨域调用登录等接口。
+ */
+if (CORS_ORIGIN) {
+  const allowedOrigins = CORS_ORIGIN.split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  app.use(cors({ origin: allowedOrigins }));
+}
+
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
@@ -42,7 +57,10 @@ app.use('/api/admin', adminRoutes);
 /**
  * GET /api/config
  * 公开返回前端需要对齐的后端运行限制
- * 避免前端硬编码阈值与后端可配置项（CHUNK_SIZE / VIDEO_MAX_SIZE_MB）脱节
+ * 避免前端硬编码阈值与后端可配置项
+ * （CHUNK_SIZE / VIDEO_MAX_SIZE_MB / IMAGE_COMPRESS_TARGET_KB）脱节
+ *
+ * 注意：不返回 IMAGE_MAX_SIZE_KB —— 它是服务端硬上限，前端只需对齐压缩目标
  */
 app.get('/api/config', (_req: Request, res: Response) => {
   res.json({
@@ -50,6 +68,7 @@ app.get('/api/config', (_req: Request, res: Response) => {
     data: {
       chunkSizeMB: CHUNK_SIZE_MB,
       videoMaxSizeMB: VIDEO_MAX_SIZE_MB,
+      imageCompressTargetKB: IMAGE_COMPRESS_TARGET_KB,
     },
   });
 });

@@ -14,6 +14,7 @@ import {
   generateDownloadTicket,
 } from '../middleware/auth.js';
 import { beijingTimestamp } from '../utils/time.js';
+import { createRateLimiter } from '../middleware/rateLimit.js';
 import {
   queryPointAgg,
   toPointStatusRows,
@@ -24,6 +25,16 @@ import {
 } from '../utils/pointsStats.js';
 
 const router = Router();
+
+/**
+ * 登录限流：同一 IP 15 分钟内最多 20 次尝试
+ * 防止对外部署时管理员密码被暴力破解（ADMIN_PASSWORD 为单一静态口令，无验证码与锁定机制）
+ */
+const loginLimiter = createRateLimiter({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  message: '登录尝试过于频繁，请 15 分钟后再试',
+});
 
 /**
  * 素材类型（v2 起不分主/备，每点位不限数量）
@@ -38,7 +49,7 @@ function isValidType(type: string): boolean {
  * POST /api/admin/login
  * 密码校验，返回 Token
  */
-router.post('/login', (req, res) => {
+router.post('/login', loginLimiter, (req, res) => {
   const { password } = req.body;
   if (!password) {
     res.status(400).json({ success: false, error: '请输入密码' });

@@ -62,6 +62,8 @@ export interface RuntimeConfig {
   chunkSizeMB: number;
   /** 视频单文件大小上限（MB） */
   videoMaxSizeMB: number;
+  /** 前端图片压缩目标（KB）：服务端硬上限会略高于该值以留出冗余 */
+  imageCompressTargetKB: number;
 }
 
 export interface ApiResponse<T> {

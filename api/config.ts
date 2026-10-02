@@ -49,7 +49,26 @@ export const ADMIN_PASSWORD = requireEnv('ADMIN_PASSWORD');
 export const CHUNK_SIZE_MB = optionalInt('CHUNK_SIZE', 5);
 
 /** 视频单文件大小上限（MB） */
-export const VIDEO_MAX_SIZE_MB = optionalInt('VIDEO_MAX_SIZE_MB', 100);
+export const VIDEO_MAX_SIZE_MB = optionalInt('VIDEO_MAX_SIZE_MB', 80);
+
+/**
+ * 图片单文件大小上限（KB）：服务端硬上限
+ * 用于拦截绕过前端直接调用接口的超大文件
+ */
+export const IMAGE_MAX_SIZE_KB = optionalInt('IMAGE_MAX_SIZE_KB', 600);
+
+/**
+ * 前端图片压缩目标（KB）
+ * 前端把超过该值的图片压缩到该值以内；故意低于 IMAGE_MAX_SIZE_KB，
+ * 给压缩结果留出冗余（极端图片压缩后可能略超目标），避免边界情况下被服务端拒绝
+ */
+export const IMAGE_COMPRESS_TARGET_KB = optionalInt('IMAGE_COMPRESS_TARGET_KB', 500);
+
+/**
+ * 允许跨域访问的来源（逗号分隔，如 "https://a.com,https://b.com"）
+ * 未配置（默认）表示不启用 CORS：前后端同源部署，浏览器不会发起跨域请求
+ */
+export const CORS_ORIGIN = (process.env.CORS_ORIGIN ?? '').trim();
 
 /** 数据存储目录（未配置时由 db.ts 回退到项目内 data 目录） */
 export const DATA_DIR = process.env.DATA_DIR;

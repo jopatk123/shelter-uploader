@@ -7,18 +7,35 @@ import { Router } from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
+import crypto from 'crypto';
+import { pipeline } from 'stream/promises';
 import fse from 'fs-extra';
 import { db, STORAGE_DIR, TEMP_CHUNK_DIR } from '../db.js';
 import { getImageDimension } from '../utils/imageDimension.js';
 import { getVideoDuration, isDurationValid, MIN_VIDEO_DURATION } from '../utils/videoDuration.js';
-import { CHUNK_SIZE_MB, VIDEO_MAX_SIZE_MB } from '../config.js';
+import { createRateLimiter } from '../middleware/rateLimit.js';
+import { CHUNK_SIZE_MB, VIDEO_MAX_SIZE_MB, IMAGE_MAX_SIZE_KB } from '../config.js';
 
 const router = Router();
 
 // 分片大小：默认 5MB
 const CHUNK_SIZE = CHUNK_SIZE_MB * 1024 * 1024;
-// 视频单文件上限：默认 100MB，可通过 .env 的 VIDEO_MAX_SIZE_MB 调整
+// 视频单文件上限：默认 80MB，可通过 .env 的 VIDEO_MAX_SIZE_MB 调整
 const VIDEO_MAX_SIZE = VIDEO_MAX_SIZE_MB * 1024 * 1024;
+// 图片单文件上限（服务端硬上限）：默认 600KB，可通过 .env 的 IMAGE_MAX_SIZE_KB 调整
+// 前端压缩目标是 500KB（IMAGE_COMPRESS_TARGET_KB），此处留 100KB 冗余避免边界误杀
+const IMAGE_MAX_SIZE = IMAGE_MAX_SIZE_KB * 1024;
+
+/**
+ * 上传接口限流：单 IP 每分钟最多 1800 次请求
+ * 正常作业（手机/相机上传数个视频）远低于此阈值，仅用于阻断刷分片的磁盘滥用
+ */
+const uploadLimiter = createRateLimiter({
+  windowMs: 60 * 1000,
+  max: 1800,
+  message: '上传请求过于频繁，请稍后再试',
+});
+router.use(uploadLimiter);
 
 // 允许的文件后缀
 const IMAGE_EXTS = ['.jpg', '.jpeg', '.png', '.webp'];
@@ -54,11 +71,31 @@ function isValidFileId(fileId: string): boolean {
 
 /**
  * 安全校验分片序号：必须为非负整数
+ * 具体上限由 maxChunksFor(type) 按文件大小上限推导，见下方校验逻辑
  */
 function isValidChunkIndex(index: unknown): boolean {
   if (typeof index !== 'string' && typeof index !== 'number') return false;
   const n = Number(index);
-  return Number.isInteger(n) && n >= 0 && n <= 100000;
+  return Number.isInteger(n) && n >= 0;
+}
+
+/**
+ * 按素材类型推导分片序号 / 分片总数的上限
+ *
+ * 依据该类型的大小上限与分片大小计算，并留 2 个分片的余量（客户端取整差异）。
+ * 这样单个 fileId 最多占用「大小上限 + 少量余量」的磁盘空间，
+ * 避免攻击者用超大 index 无限写入分片把磁盘塞满。
+ */
+function maxChunksFor(type: MaterialType): number {
+  const maxBytes = isImageType(type) ? IMAGE_MAX_SIZE : VIDEO_MAX_SIZE;
+  return Math.ceil(maxBytes / CHUNK_SIZE) + 2;
+}
+
+/**
+ * 校验分片序号是否在声明范围内
+ */
+function isValidChunkIndexInRange(index: unknown, totalChunks: unknown): boolean {
+  return Number(index) < Number(totalChunks);
 }
 
 /**
@@ -89,18 +126,8 @@ router.post('/chunk', upload.single('chunk'), (req, res) => {
     return;
   }
 
-  if (!isValidChunkIndex(index)) {
-    res.status(400).json({ success: false, error: '分片序号参数非法' });
-    return;
-  }
-
   if (!isValidPointId(pointId)) {
     res.status(400).json({ success: false, error: 'pointId 参数非法' });
-    return;
-  }
-
-  if (!isValidPointId(totalChunks)) {
-    res.status(400).json({ success: false, error: 'totalChunks 参数非法' });
     return;
   }
 
@@ -111,6 +138,32 @@ router.post('/chunk', upload.single('chunk'), (req, res) => {
 
   if (!fileName || typeof fileName !== 'string') {
     res.status(400).json({ success: false, error: 'fileName 参数非法' });
+    return;
+  }
+
+  if (!isValidChunkIndex(index)) {
+    res.status(400).json({ success: false, error: '分片序号参数非法' });
+    return;
+  }
+
+  if (!isValidPointId(totalChunks)) {
+    res.status(400).json({ success: false, error: 'totalChunks 参数非法' });
+    return;
+  }
+
+  // 分片上限：按类型大小上限推导，防止用超大 index / totalChunks 无限占盘
+  const maxChunks = maxChunksFor(type);
+  if (Number(totalChunks) > maxChunks) {
+    res.status(400).json({
+      success: false,
+      error: `分片总数超出上限（最多 ${maxChunks} 片）`,
+    });
+    return;
+  }
+
+  // 分片序号必须在声明范围内，避免声明 1 片却写入第 N 片
+  if (!isValidChunkIndexInRange(index, totalChunks)) {
+    res.status(400).json({ success: false, error: '分片序号超出声明的分片总数' });
     return;
   }
 
@@ -193,6 +246,16 @@ router.post('/complete', async (req, res) => {
     return;
   }
 
+  // 分片总数上限：与 /chunk 一致，按类型大小上限推导
+  const maxChunks = maxChunksFor(type);
+  if (Number(totalChunks) > maxChunks) {
+    res.status(400).json({
+      success: false,
+      error: `分片总数超出上限（最多 ${maxChunks} 片）`,
+    });
+    return;
+  }
+
   // 后端二次校验文件后缀（图片类用图片后缀，视频类用视频后缀）
   const ext = path.extname(fileName).toLowerCase();
   const allowedExts = isImageType(type) ? IMAGE_EXTS : VIDEO_EXTS;
@@ -246,7 +309,10 @@ router.post('/complete', async (req, res) => {
   const pointStorageDir = path.join(STORAGE_DIR, `point_${pointId}`);
   await fse.ensureDir(pointStorageDir);
 
-  const savedFileName = `${type}_${Date.now()}${ext}`;
+  // 文件名加入随机后缀：仅用 Date.now() 时，同一点位+同一类型在同一毫秒内完成两次上传
+  // 会生成同名路径，后一次 rename 覆盖前一次，随后 INSERT 触发 file_path UNIQUE 冲突，
+  // 而 catch 中的清理会误删前一次（已入库）的文件，造成「有记录无文件」的静默数据丢失
+  const savedFileName = `${type}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}${ext}`;
   const savedFilePath = path.join(pointStorageDir, savedFileName);
   const tmpFilePath = `${savedFilePath}.tmp`; // 临时文件，合并成功后再 rename
   const relPath = path.join(`point_${pointId}`, savedFileName);
@@ -254,29 +320,30 @@ router.post('/complete', async (req, res) => {
   let totalSize = 0;
 
   try {
-    // ── 步骤1：合并分片到 .tmp 临时文件（异步读取，避免阻塞事件循环） ──
-    const writeStream = fs.createWriteStream(tmpFilePath);
-    for (const chunkFile of chunkFiles) {
-      const chunkPath = path.join(chunkDir, chunkFile);
-      const chunkBuf = await fse.readFile(chunkPath);
-      totalSize += chunkBuf.length;
-      writeStream.write(chunkBuf);
-    }
-    writeStream.end();
-
-    await new Promise<void>((resolve, reject) => {
-      writeStream.on('finish', resolve);
-      writeStream.on('error', reject);
-    });
+    // ── 步骤1：合并分片到 .tmp 临时文件 ──
+    // 通过 pipeline 消费异步生成器：自动处理写流背压（write 返回 false 时暂停读取），
+    // 避免大文件把所有分片堆积在内存中（容器内存受限时会 OOM）
+    const readChunks = async function* (): AsyncGenerator<Buffer> {
+      for (const chunkFile of chunkFiles) {
+        const chunkBuf = await fse.readFile(path.join(chunkDir, chunkFile));
+        totalSize += chunkBuf.length;
+        yield chunkBuf;
+      }
+    };
+    await pipeline(readChunks(), fs.createWriteStream(tmpFilePath));
 
     // ── 步骤2：大小校验（在 rename 前，避免污染最终目录） ──
-    // 图片不限大小（前端已自动压缩到 300KB 以内），仅校验视频
-    if (!isImageType(type) && totalSize > VIDEO_MAX_SIZE) {
+    // 按类型分别校验：图片硬上限默认 600KB（前端压缩目标 500KB，留冗余）、
+    // 视频默认 80MB，此处防御绕过前端直接调用接口的超大文件
+    const isImage = isImageType(type);
+    const maxSize = isImage ? IMAGE_MAX_SIZE : VIDEO_MAX_SIZE;
+    if (totalSize > maxSize) {
+      const limitLabel = isImage ? `${IMAGE_MAX_SIZE_KB}KB` : `${VIDEO_MAX_SIZE_MB}MB`;
       safeUnlink(tmpFilePath);
       await fse.remove(chunkDir);
       res.status(400).json({
         success: false,
-        error: `文件大小超过限制（${VIDEO_MAX_SIZE_MB}MB）`,
+        error: `文件大小超过限制（${limitLabel}）`,
       });
       return;
     }

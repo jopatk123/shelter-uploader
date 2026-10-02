@@ -17,6 +17,18 @@ function makeFakeImageBuffer(size: number): Buffer {
   return Buffer.alloc(size, 0xff);
 }
 
+describe('运行时配置接口', () => {
+  it('GET /api/config 下发图片压缩目标，供前端压缩阈值对齐', async () => {
+    const res = await request(app).get('/api/config');
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.imageCompressTargetKB).toBeGreaterThan(0);
+    expect(res.body.data.videoMaxSizeMB).toBeGreaterThan(0);
+    expect(res.body.data.chunkSizeMB).toBeGreaterThan(0);
+  });
+});
+
 describe('上传流程 - 分片接口', () => {
   beforeAll(async () => {
     const res = await request(app).post('/api/admin/login').send({ password: ADMIN_PASSWORD });
@@ -66,6 +78,62 @@ describe('上传流程 - 分片接口', () => {
   it('GET /check 已移除，返回 404', async () => {
     const res = await request(app).get('/api/upload/check?fileId=any');
     expect(res.status).toBe(404);
+  });
+});
+
+describe('上传流程 - 分片数量上限', () => {
+  // 默认配置：分片 5MB，图片硬上限 600KB → 最多 ceil(600KB/5MB)+2 = 3 片
+  const IMAGE_MAX_CHUNKS = Math.ceil((600 * 1024) / (5 * 1024 * 1024)) + 2;
+
+  it('totalChunks 超过上限返回 400', async () => {
+    const res = await request(app)
+      .post('/api/upload/chunk')
+      .field('fileId', 'fid-over-chunks')
+      .field('index', '0')
+      .field('totalChunks', String(IMAGE_MAX_CHUNKS + 100))
+      .field('pointId', '1')
+      .field('type', 'img')
+      .field('fileName', 'a.jpg')
+      .attach('chunk', makeFakeImageBuffer(32), {
+        filename: 'c0',
+        contentType: 'application/octet-stream',
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('分片总数超出上限');
+  });
+
+  it('分片序号超出声明的 totalChunks 返回 400', async () => {
+    const res = await request(app)
+      .post('/api/upload/chunk')
+      .field('fileId', 'fid-index-out-of-range')
+      .field('index', '5')
+      .field('totalChunks', '1')
+      .field('pointId', '1')
+      .field('type', 'img')
+      .field('fileName', 'a.jpg')
+      .attach('chunk', makeFakeImageBuffer(32), {
+        filename: 'c5',
+        contentType: 'application/octet-stream',
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('超出声明的分片总数');
+  });
+
+  it('合并时 totalChunks 超过上限返回 400', async () => {
+    const res = await request(app)
+      .post('/api/upload/complete')
+      .send({
+        fileId: 'fid-complete-over-chunks',
+        pointId: '1',
+        type: 'img',
+        fileName: 'a.jpg',
+        totalChunks: String(IMAGE_MAX_CHUNKS + 100),
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('分片总数超出上限');
   });
 });
 

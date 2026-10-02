@@ -1,13 +1,14 @@
 /**
  * 图片上传面板
  * 支持 jpg/png/webp，不限上传数量、不限尺寸规格（像素比例）
- * 超过 300KB 的图片在前端自动压缩到 300KB 以内（优先保留分辨率），尽量保留 EXIF 元数据
- * 支持一次多选，队列串行上传
+ * 超过压缩目标（默认 500KB，由后端 IMAGE_COMPRESS_TARGET_KB 下发）的图片在前端自动压缩到
+ * 目标以内（优先保留分辨率），尽量保留 EXIF 元数据；支持一次多选，队列串行上传
  */
 import { useState, useRef, useEffect, useCallback } from 'react';
 import ProgressBar from '@/components/ProgressBar';
 import { uploadFile, generateFileId, type UploadProgress } from '@/lib/upload';
 import { compressImageIfNeeded, shouldCompress } from '@/lib/imageCompress';
+import { getRuntimeConfig } from '@/lib/runtimeConfig';
 import { formatFileSize } from '@/lib/utils';
 import {
   checkImageReadable,
@@ -45,6 +46,8 @@ function nextKey(): string {
 }
 
 export default function ImageUploadPanel({ pointId, onUploadComplete, onMissingGps }: Props) {
+  // 压缩目标取自后端运行配置，避免提示文案与 IMAGE_COMPRESS_TARGET_KB 脱节
+  const imageCompressTargetKB = getRuntimeConfig().imageCompressTargetKB;
   const inputRef = useRef<HTMLInputElement>(null);
   const [items, setItems] = useState<QueueItem[]>([]);
   const [successCount, setSuccessCount] = useState(0);
@@ -213,7 +216,8 @@ export default function ImageUploadPanel({ pointId, onUploadComplete, onMissingG
       </div>
 
       <div className="text-xs text-base-400 mb-3 font-mono">
-        格式: JPG / PNG / WEBP · 不限数量与规格 · 自动压缩至 300KB 以内 · 纯黑像素 ≤ 10%
+        格式: JPG / PNG / WEBP · 不限数量与规格 · 自动压缩至 {imageCompressTargetKB}KB 以内 ·
+        纯黑像素 ≤ 10%
       </div>
 
       <input
@@ -240,7 +244,9 @@ export default function ImageUploadPanel({ pointId, onUploadComplete, onMissingG
       >
         <div className="text-base-300">
           <p className="text-sm">点击选择图片（可多选）</p>
-          <p className="text-xs text-base-400 mt-1">JPG / PNG / WEBP · 自动压缩至 300KB 以内</p>
+          <p className="text-xs text-base-400 mt-1">
+            JPG / PNG / WEBP · 自动压缩至 {imageCompressTargetKB}KB 以内
+          </p>
         </div>
       </label>
 
