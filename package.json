@@ -25,7 +25,6 @@
   "dependencies": {
     "archiver": "^7.0.1",
     "better-sqlite3": "^11.7.0",
-    "browser-image-compression": "^2.0.2",
     "clsx": "^2.1.1",
     "cors": "^2.8.5",
     "dotenv": "^17.2.1",

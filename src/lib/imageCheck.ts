@@ -5,22 +5,30 @@
  *
  * 注意：不再限制图片像素比例，普通相机/手机照片均可上传。
  */
+import { readImageSizeFromFile, type ImageSize } from '@/lib/imageSize';
 
 /**
- * 校验图片文件是否可正常解码并读取尺寸
- * 通过浏览器原生 createImageBitmap 读取图片真实像素尺寸
+ * 校验图片文件是否可正常解码并读取尺寸。
+ * 尺寸来自文件头；解码时把长边缩到 64 像素，只验证文件能打开，
+ * 避免上传前把手机原图按全分辨率展开一次。
  *
  * @returns 校验结果：ok 表示是否成功读取尺寸，width/height 为图片原始尺寸
  */
 export async function checkImageReadable(
   file: File,
 ): Promise<{ ok: boolean; width: number; height: number }> {
+  const headerSize = await readImageSizeFromFile(file);
+
   // 优先使用 createImageBitmap（性能好，不污染 DOM）
   if (typeof createImageBitmap === 'function') {
     try {
-      const bitmap = await createImageBitmap(file);
-      const { width, height } = bitmap;
+      const bitmap = await decodeForReadableCheck(file, headerSize);
+      const width = headerSize?.width ?? bitmap.width;
+      const height = headerSize?.height ?? bitmap.height;
       bitmap.close();
+      if (width < 1 || height < 1) {
+        throw new Error('无法读取图片尺寸，文件可能已损坏');
+      }
       return { ok: true, width, height };
     } catch {
       // createImageBitmap 失败（如格式不支持），回退到 Image 元素
@@ -298,6 +306,21 @@ export async function checkBlackPixelRatio(
 async function loadBitmapForSampling(file: File): Promise<ImageBitmap | HTMLImageElement> {
   if (typeof createImageBitmap === 'function') {
     try {
+      const size = await readImageSizeFromFile(file);
+      if (size) {
+        const maxDim = Math.max(size.width, size.height);
+        const scale = maxDim > BLACK_CHECK_MAX_DIMENSION ? BLACK_CHECK_MAX_DIMENSION / maxDim : 1;
+        try {
+          return await createImageBitmap(file, {
+            imageOrientation: 'from-image',
+            resizeQuality: 'low',
+            resizeWidth: Math.max(1, Math.round(size.width * scale)),
+            resizeHeight: Math.max(1, Math.round(size.height * scale)),
+          });
+        } catch {
+          return await createImageBitmap(file);
+        }
+      }
       return await createImageBitmap(file);
     } catch {
       // fallthrough to Image fallback
@@ -316,4 +339,22 @@ async function loadBitmapForSampling(file: File): Promise<ImageBitmap | HTMLImag
     };
     img.src = url;
   });
+}
+
+/** 能读到文件头时按长边 64 像素解码，只证明文件可打开 */
+async function decodeForReadableCheck(file: File, headerSize: ImageSize | null): Promise<ImageBitmap> {
+  if (!headerSize) return createImageBitmap(file);
+
+  const longEdge = Math.max(headerSize.width, headerSize.height);
+  const scale = longEdge > 64 ? 64 / longEdge : 1;
+  try {
+    return await createImageBitmap(file, {
+      imageOrientation: 'from-image',
+      resizeQuality: 'low',
+      resizeWidth: Math.max(1, Math.round(headerSize.width * scale)),
+      resizeHeight: Math.max(1, Math.round(headerSize.height * scale)),
+    });
+  } catch {
+    return createImageBitmap(file);
+  }
 }

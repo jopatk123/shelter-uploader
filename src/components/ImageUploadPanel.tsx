@@ -2,7 +2,7 @@
  * 图片上传面板
  * 支持 jpg/png/webp，不限上传数量、不限尺寸规格（像素比例）
  * 超过压缩目标（默认 500KB，由后端 IMAGE_COMPRESS_TARGET_KB 下发）的图片在前端自动压缩到
- * 目标以内（优先保留分辨率），尽量保留 EXIF 元数据；支持一次多选，队列串行上传
+ * 目标以内（大图先降到安全分辨率，EXIF 放得下才保留）；支持一次多选，队列串行上传
  */
 import { useState, useRef, useEffect, useCallback } from 'react';
 import ProgressBar from '@/components/ProgressBar';
@@ -83,7 +83,7 @@ export default function ImageUploadPanel({ pointId, onUploadComplete, onMissingG
         // null：PNG/WEBP 等不适用，不提示；false：JPEG 没有经纬度
         const gpsCheckPromise = hasGpsExif(item.file).catch(() => false as const);
 
-        // 超过 300KB 的图片先压缩（优先保留分辨率）
+        // 超过压缩目标的图片先压缩（大图会先降到安全分辨率）
         if (shouldCompress(item.file)) {
           patchItem(item.key, {
             progress: { phase: 'compressing', percent: 0, message: '正在压缩图片（保留EXIF）...' },

@@ -24,7 +24,7 @@ export interface ImageDimension {
  */
 export function getImageDimension(filePath: string): ImageDimension | null {
   // JPEG 的 SOF 标记可能被大量 EXIF / ICC 等元数据挤到 64KB 之后
-  // （例如 browser-image-compression preserveExif 压缩后 SOF 可达 ~66KB）
+  // （压缩时把原 EXIF 插回文件头后，SOF 可能落在 64KB 附近）
   // 512KB 足以覆盖绝大多数场景，同时仍避免读取完整大文件
   const HEADER_MAX = 512 * 1024;
   const buf = Buffer.alloc(HEADER_MAX);
