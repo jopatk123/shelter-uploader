@@ -67,6 +67,9 @@ export default function UploadPage() {
     if (selectedId !== null) loadMaterials(selectedId);
   }, [loadPoints, selectedId, loadMaterials]);
 
+  // 素材墙内删除/替换成功后的刷新（与上传完成同源）
+  const handleMaterialsChanged = handleUploadComplete;
+
   const handleDownloadStats = async () => {
     setStatsDownloading(true);
     try {
@@ -208,9 +211,14 @@ export default function UploadPage() {
               )}
 
               {/* 素材墙 */}
-              {selectedPoint && (
+              {selectedId !== null && (
                 <div className="mt-4">
-                  <MaterialWall materials={materials} loading={materialsLoading} />
+                  <MaterialWall
+                    pointId={selectedId}
+                    materials={materials}
+                    loading={materialsLoading}
+                    onChanged={handleMaterialsChanged}
+                  />
                 </div>
               )}
             </div>

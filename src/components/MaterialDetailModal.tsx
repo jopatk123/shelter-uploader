@@ -1,12 +1,13 @@
 /**
  * 素材详情弹窗
  * 展示点位的全部素材（数量不限）：
- *   - 图片缩略图预览（通过 blob URL，需管理员鉴权）
+ *   - 图片预览（公开预览端点，免鉴权）
+ *   - 视频在线播放（公开端点支持 Range 流式播放）
  *   - 下载（带进度条）
  *   - 删除
  */
-import { useState, useEffect, useCallback } from 'react';
-import { adminDownload, adminDeleteMaterial, getToken } from '@/lib/api';
+import { useState } from 'react';
+import { adminDownload, adminDeleteMaterial, materialFileUrl } from '@/lib/api';
 import ProgressBar from '@/components/ProgressBar';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import type { PointDetail, MaterialItem } from '@/types';
@@ -23,63 +24,6 @@ export default function MaterialDetailModal({ point, onClose, onChanged }: Props
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [deleteTarget, setDeleteTarget] = useState<MaterialItem | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // 图片素材 id → blob URL（受鉴权保护的图片预览）
-  const [imageUrls, setImageUrls] = useState<Record<number, string>>({});
-  const [imageErrors, setImageErrors] = useState<Record<number, boolean>>({});
-
-  /**
-   * 通过 Authorization Header 获取受保护的图片，转为 blob URL 用于预览
-   * 避免将 JWT token 暴露在 img src URL 中
-   */
-  const loadImageBlob = useCallback(async (path: string): Promise<string | null> => {
-    const token = getToken();
-    if (!token) return null;
-    try {
-      const res = await fetch(`/storage/${path}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) return null;
-      const blob = await res.blob();
-      return URL.createObjectURL(blob);
-    } catch {
-      return null;
-    }
-  }, []);
-
-  /**
-   * 加载所有已上传图片的 blob URL，在组件卸载或素材变化时自动 revoke
-   */
-  useEffect(() => {
-    const images = point.materials.filter((m) => m.type === 'img');
-    if (images.length === 0) return;
-
-    let cancelled = false;
-    const urls: Record<number, string> = {};
-    const errs: Record<number, boolean> = {};
-
-    (async () => {
-      for (const m of images) {
-        const blobUrl = await loadImageBlob(m.path);
-        if (cancelled) {
-          if (blobUrl) URL.revokeObjectURL(blobUrl);
-          return;
-        }
-        if (blobUrl) urls[m.id] = blobUrl;
-        else errs[m.id] = true;
-      }
-      setImageUrls(urls);
-      setImageErrors(errs);
-    })();
-
-    return () => {
-      cancelled = true;
-      for (const url of Object.values(urls)) {
-        URL.revokeObjectURL(url);
-      }
-      setImageUrls({});
-      setImageErrors({});
-    };
-  }, [point, loadImageBlob]);
 
   const handleDownload = async (item: MaterialItem) => {
     const ext = item.path.substring(item.path.lastIndexOf('.'));
@@ -165,25 +109,18 @@ export default function MaterialDetailModal({ point, onClose, onChanged }: Props
                     key={m.id}
                     className="bg-base-800 border border-base-600 rounded-lg p-3 space-y-2"
                   >
-                    {/* 图片预览（通过 blob URL 展示受鉴权保护的图片） */}
+                    {/* 图片预览（公开预览端点） */}
                     <div
                       className="bg-base-900 rounded-lg overflow-hidden flex items-center justify-center"
                       style={{ maxHeight: '200px' }}
                     >
-                      {imageUrls[m.id] ? (
-                        <img
-                          src={imageUrls[m.id]}
-                          alt={`点位${point.id} 图片 #${m.id}`}
-                          className="max-w-full object-contain"
-                          style={{ maxHeight: '200px' }}
-                        />
-                      ) : imageErrors[m.id] ? (
-                        <div className="text-sm text-status-red py-8">图片加载失败</div>
-                      ) : (
-                        <div className="text-sm text-base-400 py-8 animate-pulse">
-                          加载图片中...
-                        </div>
-                      )}
+                      <img
+                        src={materialFileUrl(point.id, m.id)}
+                        alt={`点位${point.id} 图片 #${m.id}`}
+                        loading="lazy"
+                        className="max-w-full object-contain"
+                        style={{ maxHeight: '200px' }}
+                      />
                     </div>
 
                     <div className="text-[10px] text-base-400 font-mono flex items-center justify-between">
@@ -230,9 +167,13 @@ export default function MaterialDetailModal({ point, onClose, onChanged }: Props
                     key={m.id}
                     className="bg-base-800 border border-base-600 rounded-lg p-3 space-y-2"
                   >
-                    <div className="text-xs text-base-300 py-2 bg-base-900 rounded">
-                      视频已上传（不提供在线播放）
-                    </div>
+                    {/* 视频在线播放（公开端点支持 Range 流式播放） */}
+                    <video
+                      controls
+                      preload="metadata"
+                      src={materialFileUrl(point.id, m.id)}
+                      className="w-full max-h-64 bg-black rounded"
+                    />
                     <div className="text-[10px] text-base-400 font-mono flex items-center justify-between">
                       <span title={m.path}>{m.path.split('/').pop()}</span>
                       <span className="shrink-0 ml-2">{formatFileSize(m.size)}</span>

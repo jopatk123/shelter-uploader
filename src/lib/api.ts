@@ -52,6 +52,27 @@ export async function downloadPublicStatsCsv(): Promise<void> {
 }
 
 /**
+ * 素材文件的公开访问 URL（免鉴权）
+ * 服务端按 pointId + materialId 双重校验，支持 Range（视频拖动进度条）
+ * 可直接用于 <img src> / <video src>，无需 token
+ */
+export function materialFileUrl(pointId: number, materialId: number): string {
+  return `/api/points/${pointId}/materials/${materialId}/file`;
+}
+
+/**
+ * 公开删除素材（上传页免鉴权）
+ * 前端删除前需经确认弹窗；管理后台删除请用 adminDeleteMaterial
+ */
+export async function deletePointMaterial(pointId: number, materialId: number): Promise<void> {
+  const res = await fetch(`/api/points/${pointId}/materials/${materialId}`, {
+    method: 'DELETE',
+  });
+  const json: ApiResponse<unknown> = await res.json();
+  if (!json.success) throw new Error(json.error || '删除失败');
+}
+
+/**
  * 管理员登录
  */
 export async function adminLogin(password: string): Promise<string> {
