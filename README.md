@@ -28,12 +28,19 @@
 ## 本地开发
 
 > 需要 **Node.js 22**（better-sqlite3 11.x 无法在 Node 26+ 下编译，CI 与 Docker 同样锁定 22）。
+> 仓库已提供 `.nvmrc`（`nvm use` 即可切换），`pnpm dev` 也会因 `engines` 声明在版本不符时报错。
 
 ```bash
 pnpm install
 cp .env.example .env
 # 编辑 .env，至少填写 ADMIN_PASSWORD 与 JWT_SECRET（缺失将阻断启动）
 pnpm dev
+```
+
+也可使用一键脚本，它会自动切换到本机已安装的 Node 22（Homebrew `node@22` / nvm），版本不符时直接给出提示：
+
+```bash
+./start.sh
 ```
 
 前端 <http://localhost:5173/> ，后端 <http://localhost:3001/>
