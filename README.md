@@ -31,10 +31,16 @@
 
 ```bash
 pnpm install
+cp .env.example .env
+# 编辑 .env，至少填写 ADMIN_PASSWORD 与 JWT_SECRET（缺失将阻断启动）
 pnpm dev
 ```
 
 前端 <http://localhost:5173/> ，后端 <http://localhost:3001/>
+
+> 管理员凭据（`ADMIN_PASSWORD`、`JWT_SECRET`）为**必填项**，不再提供内置默认值：
+> 未配置时服务会直接退出并提示缺失的变量，避免以公开默认口令对外运行。
+> JWT 密钥可使用 `openssl rand -hex 32` 生成。
 
 ## 测试
 
@@ -58,7 +64,8 @@ pnpm format
 ## Docker 部署
 
 ```bash
-# 1. 修改 .env 中的管理员密码（默认 123456）
+# 1. 复制并配置 .env（必须填写 ADMIN_PASSWORD 与 JWT_SECRET，否则启动会被阻断）
+cp .env.example .env
 # 2. 一键启动（对外端口 15000）
 docker-compose up -d --build
 
@@ -79,15 +86,18 @@ rm -rf data/
 
 ## 配置说明（.env）
 
-| 变量              | 说明                        | 默认值                   |
-| ----------------- | --------------------------- | ------------------------ |
-| PORT              | 后端服务端口（容器内）      | 3001                     |
-| DOCKER_PORT       | Docker 对外端口             | 15000                    |
-| ADMIN_PASSWORD    | 管理员密码                  | 123456                   |
-| JWT_SECRET        | JWT 密钥                    | uploader-secret-key-2024 |
-| CHUNK_SIZE        | 分片大小（MB）              | 5                        |
-| VIDEO_MAX_SIZE_MB | 视频单文件大小上限（MB）    | 100                      |
-| DATA_DIR          | 数据存储目录（Docker 挂载） | /app/data                |
+| 变量              | 说明                            | 是否必填 | 默认值 |
+| ----------------- | ------------------------------- | -------- | ------ |
+| ADMIN_PASSWORD    | 管理员密码                      | ✅ 必填  | 无     |
+| JWT_SECRET        | JWT 密钥（建议随机字符串）      | ✅ 必填  | 无     |
+| PORT              | 后端服务端口                    | 可选     | 3001   |
+| VITE_PORT         | 前端开发端口（vite）            | 可选     | 5173   |
+| DOCKER_PORT       | Docker 对外端口                 | 可选     | 15000  |
+| CHUNK_SIZE        | 分片大小（MB）                  | 可选     | 5      |
+| VIDEO_MAX_SIZE_MB | 视频单文件大小上限（MB）        | 可选     | 100    |
+| DATA_DIR          | 数据存储目录（Docker 自动注入） | 可选     | ./data |
+
+> 分片大小与视频上限会通过 `GET /api/config` 下发给前端，前端不再硬编码，修改 `CHUNK_SIZE` / `VIDEO_MAX_SIZE_MB` 后前后端阈值自动保持一致。
 
 ## 数据目录
 
@@ -105,18 +115,21 @@ data/
 
 141 个点位来自市海洋与渔业局提供的《福州沿海码头避风点点位.xlsx》（WGS84 坐标系），
 字段：序号、名称、市、县（市、区）、乡（镇、街道）、位置、船管站、可停泊数量、经度、纬度、备注。
-数据固化在 [api/points-data.ts](api/points-data.ts)，服务启动时自动导入数据库。
+数据固化在 [api/points-data.ts](api/points-data.ts)（按序号拆分存放于 `api/data/`，避免单文件过大），服务启动时自动导入数据库。
 其中序号 058「石壁三级渔港」原表乡镇/船管站字段为空，界面显示为「—」，待主管部门补充。
 
 ## 项目结构
 
 ```
 api/                  # 后端 Express 应用
+├── data/             # 点位源码数据（按序号拆分）
 ├── middleware/       # 鉴权中间件
 ├── routes/           # API 路由（points/upload/admin）
-├── utils/            # 时间、图片尺寸、视频时长工具
+├── utils/            # 时间、图片尺寸、视频时长、点位统计工具
+├── config.ts         # 环境变量集中读取与校验（含 .env 加载、必填项阻断）
 ├── app.ts            # 应用入口
 ├── db.ts             # SQLite 初始化
+├── points-data.ts    # 点位数据聚合导出
 └── server.ts         # 本地开发服务器入口
 
 src/                  # 前端 React 应用

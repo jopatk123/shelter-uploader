@@ -23,7 +23,7 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'lcov'],
       include: ['api/**/*.ts', 'src/lib/**/*.ts'],
-      exclude: ['**/*.d.ts', 'api/points-data.ts'],
+      exclude: ['**/*.d.ts', 'api/points-data.ts', 'api/data/**'],
     },
     setupFiles: ['./tests/setup.ts'],
     testTimeout: 15000,

@@ -3,11 +3,7 @@
  */
 import app from './app.js';
 import { db } from './db.js';
-
-/**
- * start server with port
- */
-const PORT = process.env.PORT || 3001;
+import { PORT } from './config.js';
 
 const server = app.listen(PORT, () => {
   console.log(`Server ready on port ${PORT}`);

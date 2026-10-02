@@ -16,6 +16,7 @@ import { compressImageIfNeeded, shouldCompress } from '@/lib/imageCompress';
 import { checkImageReadable, checkBlackPixelRatio, MAX_BLACK_RATIO } from '@/lib/imageCheck';
 import { checkVideoDuration, MIN_VIDEO_DURATION } from '@/lib/videoCheck';
 import { formatFileSize, formatBeijingTime } from '@/lib/utils';
+import { getRuntimeConfig } from '@/lib/runtimeConfig';
 import type { MaterialItem } from '@/types';
 
 interface Props {
@@ -28,7 +29,6 @@ interface Props {
 
 const IMAGE_EXTS = ['.jpg', '.jpeg', '.png', '.webp'];
 const VIDEO_EXTS = ['.mp4'];
-const VIDEO_MAX_SIZE = 100 * 1024 * 1024; // 100MB，与后端 VIDEO_MAX_SIZE_MB 默认值一致
 
 export default function MaterialWall({ pointId, materials, loading, onChanged }: Props) {
   const [deleteTarget, setDeleteTarget] = useState<MaterialItem | null>(null);
@@ -124,9 +124,10 @@ export default function MaterialWall({ pointId, materials, loading, onChanged }:
           setReplaceProgress(progress),
         );
       } else {
-        // 视频：大小与时长校验（与上传面板策略一致）
-        if (file.size >= VIDEO_MAX_SIZE) {
-          throw new Error(`视频超过 ${VIDEO_MAX_SIZE / 1024 / 1024}MB 限制，请压缩后上传`);
+        // 视频：大小与时长校验（与上传面板策略一致，上限取自后端配置）
+        const videoMaxSizeMB = getRuntimeConfig().videoMaxSizeMB;
+        if (file.size >= videoMaxSizeMB * 1024 * 1024) {
+          throw new Error(`视频超过 ${videoMaxSizeMB}MB 限制，请压缩后上传`);
         }
         try {
           const { ok, duration } = await checkVideoDuration(file);

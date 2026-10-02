@@ -13,12 +13,13 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { POINTS_DATA } from './points-data.js';
+import { DATA_DIR as ENV_DATA_DIR } from './config.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // 数据目录：优先使用 DATA_DIR 环境变量（Docker 挂载），否则使用项目下 data 目录
-const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
+const DATA_DIR = ENV_DATA_DIR || path.join(__dirname, '..', 'data');
 const DB_PATH = path.join(DATA_DIR, 'db.sqlite');
 const STORAGE_DIR = path.join(DATA_DIR, 'storage');
 const TEMP_CHUNK_DIR = path.join(DATA_DIR, 'temp_chunk');

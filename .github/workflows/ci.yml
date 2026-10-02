@@ -60,8 +60,22 @@ jobs:
       - name: Smoke test container
         run: |
           docker run -d --name shelter-uploader-ci -p 15000:3001 \
-            -e ADMIN_PASSWORD=123456 \
+            -e ADMIN_PASSWORD=ci-password \
+            -e JWT_SECRET=ci-secret \
             shelter-uploader:ci
           sleep 5
           curl -fsS http://127.0.0.1:15000/api/health | grep -q '"success":true'
           docker rm -f shelter-uploader-ci
+
+      - name: Verify missing credentials block startup
+        run: |
+          # 仅给 ADMIN_PASSWORD、缺少 JWT_SECRET 时必须启动失败（退出码非 0 且非超时）
+          set +e
+          timeout 15 docker run --rm -e ADMIN_PASSWORD=ci-password shelter-uploader:ci >/dev/null 2>&1
+          code=$?
+          set -e
+          if [ "$code" -eq 0 ] || [ "$code" -eq 124 ]; then
+            echo "缺少 JWT_SECRET 时容器未按预期阻断启动（退出码 $code）" >&2
+            exit 1
+          fi
+          echo "缺少必需环境变量时已按预期阻断启动"

@@ -1,7 +1,14 @@
 /**
  * API 客户端
  */
-import type { PointStatus, PointDetail, MaterialItem, ApiResponse, MaterialType } from '@/types';
+import type {
+  PointStatus,
+  PointDetail,
+  MaterialItem,
+  ApiResponse,
+  MaterialType,
+  RuntimeConfig,
+} from '@/types';
 
 const TOKEN_KEY = 'uploader_admin_token';
 
@@ -15,6 +22,17 @@ export function setToken(token: string): void {
 
 export function clearToken(): void {
   localStorage.removeItem(TOKEN_KEY);
+}
+
+/**
+ * 获取后端运行限制配置（公开接口）
+ * 用于让前端的上传阈值与后端可配置项（分片大小、视频上限）保持一致
+ */
+export async function fetchRuntimeConfig(): Promise<RuntimeConfig> {
+  const res = await fetch('/api/config');
+  const json: ApiResponse<RuntimeConfig> = await res.json();
+  if (!json.success || !json.data) throw new Error(json.error || '获取运行配置失败');
+  return json.data;
 }
 
 /**

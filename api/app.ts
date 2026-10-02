@@ -6,16 +6,14 @@ import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
 import fse from 'fs-extra';
-import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import cron from 'node-cron';
 import { db, dbStatus, initDatabase, DATA_DIR, TEMP_CHUNK_DIR, STORAGE_DIR } from './db.js';
+import { CHUNK_SIZE_MB, VIDEO_MAX_SIZE_MB } from './config.js';
 import pointsRoutes from './routes/points.js';
 import uploadRoutes from './routes/upload.js';
 import adminRoutes from './routes/admin.js';
 import { authMiddleware } from './middleware/auth.js';
-
-dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -40,6 +38,21 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use('/api/points', pointsRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/admin', adminRoutes);
+
+/**
+ * GET /api/config
+ * 公开返回前端需要对齐的后端运行限制
+ * 避免前端硬编码阈值与后端可配置项（CHUNK_SIZE / VIDEO_MAX_SIZE_MB）脱节
+ */
+app.get('/api/config', (_req: Request, res: Response) => {
+  res.json({
+    success: true,
+    data: {
+      chunkSizeMB: CHUNK_SIZE_MB,
+      videoMaxSizeMB: VIDEO_MAX_SIZE_MB,
+    },
+  });
+});
 
 /**
  * 健康检查（Docker HEALTHCHECK 探针）

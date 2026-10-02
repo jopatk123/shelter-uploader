@@ -13,7 +13,15 @@ import {
   verifyPassword,
   generateDownloadTicket,
 } from '../middleware/auth.js';
-import { formatBeijingTime, beijingTimestamp } from '../utils/time.js';
+import { beijingTimestamp } from '../utils/time.js';
+import {
+  queryPointAgg,
+  toPointStatusRows,
+  buildStatsCsv,
+  statsCsvFileName,
+  sendCsv,
+  type PointFilter,
+} from '../utils/pointsStats.js';
 
 const router = Router();
 
@@ -72,65 +80,6 @@ function parseIdsParam(raw: unknown): number[] | null {
 }
 
 /**
- * CSV 表格列定义：每个条目对应一列
- * - key: 行对象字段名
- * - header: CSV 表头文字
- */
-interface StatsCsvColumn {
-  key: string;
-  header: string;
-}
-
-const STATS_CSV_COLUMNS: StatsCsvColumn[] = [
-  { key: 'id', header: '序号' },
-  { key: 'name', header: '名称' },
-  { key: 'district', header: '区县' },
-  { key: 'township', header: '乡镇' },
-  { key: 'station', header: '船管站' },
-  { key: 'lon', header: '经度' },
-  { key: 'lat', header: '纬度' },
-  { key: 'img_count', header: '图片数' },
-  { key: 'video_count', header: '视频数' },
-  { key: 'uploaded_count', header: '已上传素材数' },
-  { key: 'status', header: '完成状态' },
-  { key: 'upload_time', header: '最后上传时间' },
-];
-
-/**
- * 将字段值统一格式化为 CSV 单元格安全字符串
- * - 字符串中的双引号转义为两个双引号
- * - 含逗号、双引号、换行符的字段用双引号包裹
- * - null/undefined 转为空字符串
- */
-function escapeCsvCell(value: unknown): string {
-  if (value === null || value === undefined) return '';
-  const str = typeof value === 'boolean' ? (value ? '是' : '否') : String(value);
-  if (/[",\n\r]/.test(str)) {
-    return `"${str.replace(/"/g, '""')}"`;
-  }
-  return str;
-}
-
-/**
- * 依据图片/视频上传情况判定完成状态文案（与前端 getPointState 语义一致）
- */
-function describePointStatus(imgCount: number, videoCount: number): string {
-  if (imgCount > 0 || videoCount > 0) return '已完成';
-  return '未上传';
-}
-
-/** 点位素材聚合查询 SQL */
-const POINTS_AGG_QUERY = `
-  SELECT
-    p.id, p.name, p.district, p.township, p.station, p.lon, p.lat,
-    COALESCE(SUM(CASE WHEN m.material_type = 'img' THEN 1 ELSE 0 END), 0) AS img_count,
-    COALESCE(SUM(CASE WHEN m.material_type = 'video' THEN 1 ELSE 0 END), 0) AS video_count,
-    MAX(m.upload_time) AS upload_time
-  FROM point_info p
-  LEFT JOIN material m ON p.id = m.point_id
-`;
-
-/**
  * GET /api/admin/stats-csv?ticket=xxx[&ids=1,2,3]
  * 下载点位统计表格（CSV 格式，UTF-8 BOM 头确保 Excel 正确显示中文）
  *   - 不传 ids：导出全部点位
@@ -151,77 +100,18 @@ router.get('/stats-csv', ticketMiddleware, (req, res) => {
     return;
   }
 
-  // 构造查询：默认全部，传 ids 时仅查询指定点位
-  const placeholders = ids ? ids.map(() => '?').join(',') : null;
-  const idFilter = placeholders ? `WHERE p.id IN (${placeholders})` : '';
-  const params: unknown[] = ids ?? [];
-
-  const rows = db
-    .prepare(
-      `
-    ${POINTS_AGG_QUERY}
-    ${idFilter}
-    GROUP BY p.id
-    ORDER BY p.id
-  `,
-    )
-    .all(...params) as Array<{
-    id: number;
-    name: string;
-    district: string;
-    township: string;
-    station: string;
-    lon: number;
-    lat: number;
-    img_count: number;
-    video_count: number;
-    upload_time: string | null;
-  }>;
+  // 查询：默认全部，传 ids 时仅查询指定点位
+  const rows = queryPointAgg({ ids });
 
   if (rows.length === 0) {
     res.status(404).json({ success: false, error: '没有可导出的点位' });
     return;
   }
 
-  // 计算字段并组装行
-  const dataRows = rows.map((r) => ({
-    id: r.id,
-    name: r.name,
-    district: r.district,
-    township: r.township,
-    station: r.station,
-    lon: r.lon,
-    lat: r.lat,
-    img_count: r.img_count,
-    video_count: r.video_count,
-    uploaded_count: r.img_count + r.video_count,
-    status: describePointStatus(r.img_count, r.video_count),
-    upload_time: formatBeijingTime(r.upload_time),
-  }));
-
-  // 生成 CSV 文本
-  const headerLine = STATS_CSV_COLUMNS.map((c) => escapeCsvCell(c.header)).join(',');
-  const bodyLines = dataRows.map((row) =>
-    STATS_CSV_COLUMNS.map((col) => escapeCsvCell(row[col.key as keyof typeof row])).join(','),
-  );
-  // 加 UTF-8 BOM 头，确保 Excel 打开时正确识别中文
-  const csvContent = '\uFEFF' + headerLine + '\n' + bodyLines.join('\n') + '\n';
-
-  // 生成文件名：stats_YYYYMMDD_HHmmss.csv（北京时间）
-  const ts = beijingTimestamp();
-  const fileName = `stats_${ts}.csv`;
-
-  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-  res.setHeader(
-    'Content-Disposition',
-    `attachment; filename="${fileName}"; filename*=UTF-8''${encodeURIComponent(fileName)}`,
-  );
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-
   const scopeLabel = ids ? `指定 ${ids.length} 个点位` : '全部点位';
-  console.log(`[stats-csv] 导出完成 (${scopeLabel}): ${dataRows.length} 行`);
+  console.log(`[stats-csv] 导出完成 (${scopeLabel}): ${rows.length} 行`);
 
-  res.send(csvContent);
+  sendCsv(res, buildStatsCsv(rows), statsCsvFileName());
 });
 
 /**
@@ -421,53 +311,9 @@ router.post('/download-ticket', (_req, res) => {
  *   - completed:  至少上传一种素材
  */
 router.get('/points', (req, res) => {
-  const filter = (req.query.filter as string) || 'all';
+  const filter = ((req.query.filter as string) || 'all') as PointFilter;
 
-  // 基于聚合后的 img_count / video_count 筛选（HAVING 子句）
-  let havingClause = '';
-  if (filter === 'img_only') {
-    havingClause = 'HAVING img_count > 0 AND video_count = 0';
-  } else if (filter === 'video_only') {
-    havingClause = 'HAVING img_count = 0 AND video_count > 0';
-  } else if (filter === 'completed') {
-    havingClause = 'HAVING img_count > 0 OR video_count > 0';
-  }
-
-  const rows = db
-    .prepare(
-      `
-    ${POINTS_AGG_QUERY}
-    GROUP BY p.id
-    ${havingClause}
-    ORDER BY p.id
-  `,
-    )
-    .all() as Array<{
-    id: number;
-    name: string;
-    district: string;
-    township: string;
-    station: string;
-    lon: number;
-    lat: number;
-    img_count: number;
-    video_count: number;
-    upload_time: string | null;
-  }>;
-
-  const points = rows.map((r) => ({
-    id: r.id,
-    name: r.name,
-    district: r.district,
-    township: r.township,
-    station: r.station,
-    lon: r.lon,
-    lat: r.lat,
-    img_count: r.img_count,
-    video_count: r.video_count,
-    uploaded_count: r.img_count + r.video_count,
-    upload_time: r.upload_time,
-  }));
+  const points = toPointStatusRows(queryPointAgg({ filter }));
 
   res.json({ success: true, data: points });
 });

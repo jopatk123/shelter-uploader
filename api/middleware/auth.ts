@@ -4,9 +4,7 @@
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import type { Request, Response, NextFunction } from 'express';
-
-const JWT_SECRET = process.env.JWT_SECRET || 'uploader-secret-key-2024';
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '123456';
+import { JWT_SECRET, ADMIN_PASSWORD } from '../config.js';
 
 /**
  * 一次性下载票据存储（内存中，TTL 60 秒）

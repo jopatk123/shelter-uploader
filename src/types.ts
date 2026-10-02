@@ -56,6 +56,14 @@ export interface PointDetail {
   materials: MaterialItem[];
 }
 
+/** 后端运行限制配置（前端需对齐的上传阈值） */
+export interface RuntimeConfig {
+  /** 上传分片大小（MB） */
+  chunkSizeMB: number;
+  /** 视频单文件大小上限（MB） */
+  videoMaxSizeMB: number;
+}
+
 export interface ApiResponse<T> {
   success: boolean;
   data?: T;

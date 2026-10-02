@@ -9,6 +9,7 @@ import ProgressBar from '@/components/ProgressBar';
 import { uploadFile, generateFileId, type UploadProgress } from '@/lib/upload';
 import { checkVideoDuration, MIN_VIDEO_DURATION } from '@/lib/videoCheck';
 import { formatFileSize } from '@/lib/utils';
+import { getRuntimeConfig } from '@/lib/runtimeConfig';
 
 interface Props {
   pointId: number | null;
@@ -26,7 +27,6 @@ interface QueueItem {
   error?: string;
 }
 
-const VIDEO_MAX_SIZE = 100 * 1024 * 1024; // 100MB
 const ALLOWED_EXTS = ['.mp4'];
 
 let seqCounter = 0;
@@ -53,6 +53,8 @@ export default function VideoUploadPanel({ pointId, onUploadComplete, onOverLimi
   }, [pointId]);
 
   const disabled = pointId === null;
+  // 单文件上限取自后端运行配置，避免与后端 VIDEO_MAX_SIZE_MB 脱节
+  const videoMaxSizeMB = getRuntimeConfig().videoMaxSizeMB;
 
   const patchItem = useCallback((key: string, patch: Partial<QueueItem>) => {
     setItems((prev) => prev.map((it) => (it.key === key ? { ...it, ...patch } : it)));
@@ -123,14 +125,14 @@ export default function VideoUploadPanel({ pointId, onUploadComplete, onOverLimi
       }
 
       // 校验大小：超过上限的文件拦截（弹窗指引压缩），不入队
-      if (file.size >= VIDEO_MAX_SIZE) {
+      if (file.size >= videoMaxSizeMB * 1024 * 1024) {
         overLimit = true;
         rejected.push({
           key: nextKey(),
           file,
           status: 'error',
           progress: null,
-          error: `视频超过 ${VIDEO_MAX_SIZE / 1024 / 1024}MB 限制，请压缩后上传`,
+          error: `视频超过 ${videoMaxSizeMB}MB 限制，请压缩后上传`,
         });
         continue;
       }
@@ -194,7 +196,7 @@ export default function VideoUploadPanel({ pointId, onUploadComplete, onOverLimi
       </div>
 
       <div className="text-xs text-base-400 mb-3 font-mono">
-        格式: MP4 · 不限数量 · 单文件上限 100MB · 时长 ≥ 10秒
+        格式: MP4 · 不限数量 · 单文件上限 {videoMaxSizeMB}MB · 时长 ≥ 10秒
       </div>
 
       <input
@@ -221,7 +223,7 @@ export default function VideoUploadPanel({ pointId, onUploadComplete, onOverLimi
       >
         <div className="text-base-300">
           <p className="text-sm">点击选择视频（可多选）</p>
-          <p className="text-xs text-base-400 mt-1">MP4 · 最大 100MB · ≥ 10秒</p>
+          <p className="text-xs text-base-400 mt-1">MP4 · 最大 {videoMaxSizeMB}MB · ≥ 10秒</p>
         </div>
       </label>
 

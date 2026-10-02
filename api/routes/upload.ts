@@ -11,13 +11,13 @@ import fse from 'fs-extra';
 import { db, STORAGE_DIR, TEMP_CHUNK_DIR } from '../db.js';
 import { getImageDimension } from '../utils/imageDimension.js';
 import { getVideoDuration, isDurationValid, MIN_VIDEO_DURATION } from '../utils/videoDuration.js';
+import { CHUNK_SIZE_MB, VIDEO_MAX_SIZE_MB } from '../config.js';
 
 const router = Router();
 
 // 分片大小：默认 5MB
-const CHUNK_SIZE = parseInt(process.env.CHUNK_SIZE || '5', 10) * 1024 * 1024;
+const CHUNK_SIZE = CHUNK_SIZE_MB * 1024 * 1024;
 // 视频单文件上限：默认 100MB，可通过 .env 的 VIDEO_MAX_SIZE_MB 调整
-const VIDEO_MAX_SIZE_MB = parseInt(process.env.VIDEO_MAX_SIZE_MB || '100', 10);
 const VIDEO_MAX_SIZE = VIDEO_MAX_SIZE_MB * 1024 * 1024;
 
 // 允许的文件后缀

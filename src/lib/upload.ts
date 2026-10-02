@@ -2,8 +2,7 @@
  * 分片上传工具
  * 支持分片切分、进度回调
  */
-
-const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB 分片
+import { getRuntimeConfig } from '@/lib/runtimeConfig';
 
 /** 素材类型：图片 / 视频（v2 起不分主备） */
 export type UploadType = 'img' | 'video';
@@ -16,10 +15,13 @@ export interface UploadProgress {
 
 /**
  * 生成文件唯一标识
+ * 使用 crypto.randomUUID() 保证全局唯一，避免时间戳 + 随机数在并发下碰撞
+ * （fileId 决定分片临时目录，碰撞会导致不同文件的分片互相串写）
  */
 export function generateFileId(file: File): string {
-  const ext = file.name.substring(file.name.lastIndexOf('.'));
-  return `${Date.now()}_${Math.random().toString(36).substring(2, 9)}${ext}`;
+  const dotIndex = file.name.lastIndexOf('.');
+  const ext = dotIndex >= 0 ? file.name.substring(dotIndex) : '';
+  return `${crypto.randomUUID()}${ext}`;
 }
 
 /**
@@ -87,13 +89,15 @@ export async function uploadFile(
   fileId: string,
   onProgress: (progress: UploadProgress) => void,
 ): Promise<void> {
+  // 分片大小取自后端配置，确保不超过后端 multer 的单片限制
+  const chunkSize = getRuntimeConfig().chunkSizeMB * 1024 * 1024;
   const fileSize = file.size;
-  const totalChunks = Math.ceil(fileSize / CHUNK_SIZE);
+  const totalChunks = Math.ceil(fileSize / chunkSize);
 
   // 逐片上传
   for (let i = 0; i < totalChunks; i++) {
-    const start = i * CHUNK_SIZE;
-    const end = Math.min(start + CHUNK_SIZE, fileSize);
+    const start = i * chunkSize;
+    const end = Math.min(start + chunkSize, fileSize);
     const chunk = file.slice(start, end);
 
     await uploadChunk(chunk, i, totalChunks, fileId, pointId, type, originalName);
