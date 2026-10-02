@@ -3,6 +3,7 @@
  */
 import express, { type Request, type Response, type NextFunction } from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
 import path from 'path';
 import fs from 'fs';
 import fse from 'fs-extra';
@@ -32,6 +33,30 @@ try {
 }
 
 const app: express.Application = express();
+
+// 隐藏 Express 框架标识 + 统一安全响应头（nosniff / frameguard / HSTS 等）
+app.disable('x-powered-by');
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        // 前端图片校验回退方案（imageCheck）与视频时长校验（videoCheck）
+        // 通过 blob: URL 解码本地文件，需放行 blob:；data: 兜底小图
+        imgSrc: ["'self'", 'data:', 'blob:'],
+        mediaSrc: ["'self'", 'blob:'],
+        scriptSrc: ["'self'"],
+        // tailwind 产物为同源外部样式表；个别组件使用内联 style 属性
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        connectSrc: ["'self'"],
+        objectSrc: ["'none'"],
+        baseUri: ["'self'"],
+        formAction: ["'self'"],
+        frameAncestors: ["'self'"],
+      },
+    },
+  }),
+);
 
 /**
  * 跨域策略：前后端同源部署时浏览器不会发起跨域请求，故默认不启用 CORS。
@@ -234,6 +259,12 @@ app.use((error: Error, _req: Request, res: Response, _next: NextFunction) => {
   console.error('[error]', error.message);
 
   const code = (error as { code?: string }).code;
+
+  // 上传分片超过 multer 单片大小限制（正常前端按后端配置切片不会触发）
+  if (code === 'LIMIT_FILE_SIZE') {
+    res.status(400).json({ success: false, error: '单个分片大小超过限制' });
+    return;
+  }
 
   // 磁盘空间不足
   if (code === 'SQLITE_FULL') {

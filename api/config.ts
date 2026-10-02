@@ -72,3 +72,32 @@ export const CORS_ORIGIN = (process.env.CORS_ORIGIN ?? '').trim();
 
 /** 数据存储目录（未配置时由 db.ts 回退到项目内 data 目录） */
 export const DATA_DIR = process.env.DATA_DIR;
+
+/**
+ * 弱配置启动告警（不阻断启动，但公网部署时必须整改）
+ * - JWT_SECRET 过短：token 签名可被离线暴力破解伪造
+ * - ADMIN_PASSWORD 命中常见弱口令表：配合 15 分钟 20 次限流虽难以在线爆破，
+ *   但攻击者可多 IP 并行尝试，必须更换
+ */
+const COMMON_WEAK_PASSWORDS = new Set([
+  '123456',
+  'password',
+  'admin',
+  'admin123',
+  '12345678',
+  '123456789',
+  'abc123',
+  '88888888',
+]);
+
+if (JWT_SECRET.length < 32) {
+  console.warn(
+    `[config] ⚠️ JWT_SECRET 长度仅 ${JWT_SECRET.length} 字符，建议使用 ≥ 32 字符的随机字符串，` +
+      '否则 token 签名可能被离线暴力破解伪造',
+  );
+}
+if (COMMON_WEAK_PASSWORDS.has(ADMIN_PASSWORD)) {
+  console.warn(
+    '[config] ⚠️ ADMIN_PASSWORD 为常见弱口令，公网部署会在短时间内被爆破，请立即更换强密码',
+  );
+}

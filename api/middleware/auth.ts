@@ -26,9 +26,13 @@ export function generateToken(): string {
 
 /**
  * 校验密码
+ * 先对双方做 SHA-256 摘要（保证等长）再 timingSafeEqual 比较，
+ * 避免逐字节短路比较产生的时序侧信道
  */
 export function verifyPassword(password: string): boolean {
-  return password === ADMIN_PASSWORD;
+  const a = crypto.createHash('sha256').update(password, 'utf8').digest();
+  const b = crypto.createHash('sha256').update(ADMIN_PASSWORD, 'utf8').digest();
+  return crypto.timingSafeEqual(a, b);
 }
 
 /**
@@ -88,7 +92,8 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
   }
 
   try {
-    jwt.verify(token, JWT_SECRET);
+    // 固定算法为 HS256，防止 alg 混淆攻击（如 none / 算法降级）
+    jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] });
     next();
   } catch {
     res.status(403).json({ success: false, error: 'Token无效或已过期' });

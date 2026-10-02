@@ -301,4 +301,19 @@ describe('DELETE /api/points/:id/materials/:materialId', () => {
     expect(pointAfter.uploaded_count).toBe(0);
     expect(pointAfter.img_count).toBe(0);
   });
+
+  it('高频删除触发限流 429（防脚本遍历素材 id 批量清库）', async () => {
+    // 注意：该用例会耗尽当前测试 worker 内的删除限额，必须保持在文件末尾执行。
+    // 限流 30 次/分钟；前面用例已消耗部分额度，此处持续高频删除，
+    // 即使响应是 404/400 也计入限流，最终必然触发 429
+    let saw429 = false;
+    let lastStatus = 0;
+    for (let i = 0; i < 40 && !saw429; i++) {
+      const res = await request(app).delete('/api/points/1/materials/999999');
+      lastStatus = res.status;
+      if (res.status === 429) saw429 = true;
+    }
+    expect(saw429).toBe(true);
+    expect(lastStatus).toBe(429);
+  });
 });

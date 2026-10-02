@@ -35,6 +35,12 @@ COPY tsconfig.json ./
 # 创建数据目录
 RUN mkdir -p /app/data/storage /app/data/temp_chunk
 
+# 以 node 用户运行（非 root），降低容器被攻破后的影响面
+# 注意：宿主机挂载的 data 目录需可被 UID 1000 写入，
+# 部署时若目录属主为 root，需执行 sudo chown -R 1000:1000 ./data
+RUN chown -R node:node /app
+USER node
+
 EXPOSE 3001
 
 # 健康检查

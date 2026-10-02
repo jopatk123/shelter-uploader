@@ -15,6 +15,7 @@ import {
 } from '../middleware/auth.js';
 import { beijingTimestamp } from '../utils/time.js';
 import { createRateLimiter } from '../middleware/rateLimit.js';
+import { parsePositiveIntParam } from './points.js';
 import {
   queryPointAgg,
   toPointStatusRows,
@@ -57,6 +58,8 @@ router.post('/login', loginLimiter, (req, res) => {
   }
 
   if (!verifyPassword(password)) {
+    // 记录失败来源 IP（不记录密码），便于部署后审计暴力破解尝试
+    console.warn(`[admin/login] 密码错误，来源 IP: ${req.ip ?? 'unknown'}`);
     res.status(401).json({ success: false, error: '密码错误' });
     return;
   }
@@ -228,6 +231,9 @@ router.get('/batch-download', ticketMiddleware, (req, res) => {
     console.error('[batch-download] archiver 致命错误:', err.message);
     if (!res.headersSent) {
       res.status(500).json({ success: false, error: '打包失败' });
+    } else {
+      // 响应头已发出无法改状态码；销毁连接让客户端明确感知失败，避免连接挂到超时
+      res.destroy();
     }
   });
 
@@ -334,8 +340,8 @@ router.get('/points', (req, res) => {
  * 点位详情（含该点位全部素材列表）
  */
 router.get('/point/:id', (req, res) => {
-  const pointId = parseInt(req.params.id);
-  if (isNaN(pointId)) {
+  const pointId = parsePositiveIntParam(req.params.id);
+  if (pointId === null) {
     res.status(400).json({ success: false, error: '点位ID无效' });
     return;
   }
@@ -411,9 +417,8 @@ router.get('/point/:id', (req, res) => {
  * 下载单个素材（流式传输），:id 为素材行 id
  */
 router.get('/download/:id', (req, res) => {
-  const materialId = parseInt(req.params.id);
-
-  if (isNaN(materialId)) {
+  const materialId = parsePositiveIntParam(req.params.id);
+  if (materialId === null) {
     res.status(400).json({ success: false, error: '素材ID无效' });
     return;
   }
@@ -455,9 +460,8 @@ router.get('/download/:id', (req, res) => {
  * 删除素材（:id 为素材行 id），同步删除数据库记录与磁盘文件
  */
 router.delete('/material/:id', (req, res) => {
-  const materialId = parseInt(req.params.id);
-
-  if (isNaN(materialId)) {
+  const materialId = parsePositiveIntParam(req.params.id);
+  if (materialId === null) {
     res.status(400).json({ success: false, error: '素材ID无效' });
     return;
   }

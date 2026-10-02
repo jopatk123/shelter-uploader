@@ -5,6 +5,7 @@ import { Router } from 'express';
 import path from 'path';
 import fs from 'fs';
 import { db, STORAGE_DIR } from '../db.js';
+import { createRateLimiter } from '../middleware/rateLimit.js';
 import {
   queryPointAgg,
   toPointStatusRows,
@@ -16,10 +17,23 @@ import {
 const router = Router();
 
 /**
- * 严格解析正整数路由参数（与 upload.ts 的参数校验风格一致）
- * parseInt 会把 "12abc" 解析为 12，这里用全数字正则避免误匹配
+ * 删除操作限流：单 IP 每分钟最多 30 次删除
+ * 删除接口公开免鉴权（用于上传页误传后的自主纠错），若无限流，
+ * 攻击者可脚本遍历素材 id 批量清空全部素材（文件随记录同步删除且不可恢复）。
+ * 正常用户的误删纠错为低频操作，30 次/分钟完全够用
  */
-function parsePositiveIntParam(raw: string): number | null {
+const deleteLimiter = createRateLimiter({
+  windowMs: 60 * 1000,
+  max: 30,
+  message: '删除操作过于频繁，请稍后再试',
+});
+
+/**
+ * 严格解析正整数路由参数（与 upload.ts 的参数校验风格一致）
+ * parseInt 会把 "12abc" 解析为 12，这里用全数字正则避免误匹配；
+ * 解析失败返回 null（由调用方转为 400）
+ */
+export function parsePositiveIntParam(raw: string): number | null {
   if (!/^\d+$/.test(raw)) return null;
   const n = Number(raw);
   return n > 0 ? n : null;
@@ -66,8 +80,8 @@ router.get('/', (_req, res) => {
  * 上传页素材墙与后台详情共用
  */
 router.get('/:id/materials', (req, res) => {
-  const pointId = parseInt(req.params.id);
-  if (isNaN(pointId) || pointId <= 0) {
+  const pointId = parsePositiveIntParam(req.params.id);
+  if (pointId === null) {
     res.status(400).json({ success: false, error: '点位ID无效' });
     return;
   }
@@ -140,10 +154,11 @@ router.get('/:id/materials/:materialId/file', (req, res) => {
  * 公开删除素材（免鉴权，上传页误传后的自主纠错能力）
  *   - 同步删除数据库记录与磁盘文件（先 DB 后文件，与 admin 端点一致）
  *   - 文件删除失败仅留孤儿文件，由定时清理兜底
+ *   - 限流 30 次/分钟/IP：防止脚本遍历素材 id 批量清库（删除不可恢复）
  *
  * 前端删除前有确认弹窗防误删；信任模型与公开上传对称
  */
-router.delete('/:id/materials/:materialId', (req, res) => {
+router.delete('/:id/materials/:materialId', deleteLimiter, (req, res) => {
   const pointId = parsePositiveIntParam(req.params.id);
   const materialId = parsePositiveIntParam(req.params.materialId);
 

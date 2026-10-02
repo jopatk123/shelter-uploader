@@ -261,6 +261,51 @@ describe('上传流程 - 合并接口', () => {
     expect(res.status).toBe(400);
   });
 
+  it('缺少 fileName 返回 400（防御 path.extname 抛错导致进程崩溃）', async () => {
+    const res = await request(app).post('/api/upload/complete').send({
+      fileId: 'fid-no-filename',
+      pointId: '1',
+      type: 'img',
+      totalChunks: '1',
+    });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('fileName');
+  });
+
+  it('分片序号不连续（跳号）返回 400', async () => {
+    const fileId = `fid-gap-${Date.now()}`;
+    const buf = makeFakeImageBuffer(64);
+
+    // 上传 chunk-0 和 chunk-2（声明 totalChunks=3，均通过 /chunk 的序号范围校验）
+    await request(app)
+      .post('/api/upload/chunk')
+      .field('fileId', fileId)
+      .field('index', '0')
+      .field('totalChunks', '3')
+      .field('pointId', '1')
+      .field('type', 'img')
+      .field('fileName', 'a.jpg')
+      .attach('chunk', buf, { filename: 'c0', contentType: 'application/octet-stream' });
+    await request(app)
+      .post('/api/upload/chunk')
+      .field('fileId', fileId)
+      .field('index', '2')
+      .field('totalChunks', '3')
+      .field('pointId', '1')
+      .field('type', 'img')
+      .field('fileName', 'a.jpg')
+      .attach('chunk', buf, { filename: 'c2', contentType: 'application/octet-stream' });
+
+    // 数量（2）与声明一致，但序号缺 1 → 必须拒绝
+    const res = await request(app)
+      .post('/api/upload/complete')
+      .send({ fileId, pointId: '1', type: 'img', fileName: 'a.jpg', totalChunks: '2' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('分片序号不连续');
+  });
+
   it('重复上传同一类型素材时追加记录（数量不限），旧文件与记录均保留', async () => {
     const pointId = '4';
     const fileId1 = `fid-append-1-${Date.now()}`;

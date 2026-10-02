@@ -24,8 +24,49 @@ export function generateFileId(file: File): string {
   return `${crypto.randomUUID()}${ext}`;
 }
 
+/** 单片上传超时：弱网下 5MB 分片应在 120 秒内完成，超时视为本次尝试失败 */
+const CHUNK_TIMEOUT_MS = 120 * 1000;
+
+/** 单片失败后的自动重试次数（含首次共 3 次尝试） */
+const CHUNK_RETRIES = 2;
+
+/** 重试间隔基数（毫秒），按尝试次数线性退避 */
+const RETRY_DELAY_MS = 1000;
+
+/** 合并请求超时：大文件合并 + 服务端校验耗时较长 */
+const COMPLETE_TIMEOUT_MS = 180 * 1000;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 /**
- * 上传单个分片
+ * 带超时的 fetch（超时后中止请求）
+ * 超时抛出语义化错误，便于上层提示
+ */
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw new Error('请求超时，请检查网络后重试');
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * 上传单个分片（失败自动重试）
+ * - 网络异常 / 超时 / 5xx / 429（限流）：间隔后自动重试
+ * - 4xx 参数类错误：重试也不会成功，立即失败
  */
 async function uploadChunk(
   chunk: Blob,
@@ -36,28 +77,51 @@ async function uploadChunk(
   type: UploadType,
   fileName: string,
 ): Promise<void> {
-  const formData = new FormData();
-  formData.append('chunk', chunk, `chunk-${index}`);
-  formData.append('index', String(index));
-  formData.append('totalChunks', String(totalChunks));
-  formData.append('fileId', fileId);
-  formData.append('pointId', String(pointId));
-  formData.append('type', type);
-  formData.append('fileName', fileName);
+  const maxAttempts = 1 + CHUNK_RETRIES;
+  let lastError: Error = new Error(`分片 ${index} 上传失败`);
 
-  const res = await fetch('/api/upload/chunk', {
-    method: 'POST',
-    body: formData,
-  });
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    if (attempt > 1) {
+      await sleep(RETRY_DELAY_MS * attempt);
+    }
 
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: '分片上传失败' }));
-    throw new Error(err.error || `分片 ${index} 上传失败`);
+    let giveUp = false;
+    try {
+      // FormData 需每次尝试重建（body 不可复用）
+      const formData = new FormData();
+      formData.append('chunk', chunk, `chunk-${index}`);
+      formData.append('index', String(index));
+      formData.append('totalChunks', String(totalChunks));
+      formData.append('fileId', fileId);
+      formData.append('pointId', String(pointId));
+      formData.append('type', type);
+      formData.append('fileName', fileName);
+
+      const res = await fetchWithTimeout(
+        '/api/upload/chunk',
+        { method: 'POST', body: formData },
+        CHUNK_TIMEOUT_MS,
+      );
+
+      if (res.ok) return;
+
+      const err = (await res.json().catch(() => ({ error: '' }))) as { error?: string };
+      lastError = new Error(err.error || `分片 ${index} 上传失败`);
+      // 4xx（限流 429 除外）属于请求本身问题，重试无意义
+      giveUp = res.status >= 400 && res.status < 500 && res.status !== 429;
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error('网络异常');
+    }
+
+    if (giveUp) break;
   }
+
+  throw lastError;
 }
 
 /**
- * 通知后端合并文件
+ * 通知后端合并文件（仅超时保护，不自动重试：
+ * 成功后分片目录已被服务端删除，盲目重试会造成重复入库）
  */
 async function completeUpload(
   fileId: string,
@@ -66,11 +130,15 @@ async function completeUpload(
   fileName: string,
   totalChunks: number,
 ): Promise<void> {
-  const res = await fetch('/api/upload/complete', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ fileId, pointId, type, fileName, totalChunks }),
-  });
+  const res = await fetchWithTimeout(
+    '/api/upload/complete',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileId, pointId, type, fileName, totalChunks }),
+    },
+    COMPLETE_TIMEOUT_MS,
+  );
 
   const json = await res.json();
   if (!json.success) {

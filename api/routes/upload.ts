@@ -223,7 +223,7 @@ function safeUnlink(p: string): void {
  *   - 数据库始终指向「真实存在的文件」（旧文件或新文件）
  *   - 不会出现「数据库指向已删除文件」的破坏性场景
  */
-router.post('/complete', async (req, res) => {
+router.post('/complete', async (req, res, next) => {
   const { fileId, pointId, type, fileName, totalChunks } = req.body;
 
   if (!fileId || !isValidFileId(fileId)) {
@@ -243,6 +243,14 @@ router.post('/complete', async (req, res) => {
 
   if (!type || !isValidType(type)) {
     res.status(400).json({ success: false, error: '类型参数非法' });
+    return;
+  }
+
+  // fileName 缺失会让 path.extname 抛 TypeError；此处在 async handler 中抛错
+  // 不会被 Express 4 捕获（async rejection），最终触发 unhandledRejection 导致进程退出，
+  // 攻击者可借此反复打挂服务，必须前置校验
+  if (!fileName || typeof fileName !== 'string') {
+    res.status(400).json({ success: false, error: 'fileName 参数非法' });
     return;
   }
 
@@ -267,161 +275,187 @@ router.post('/complete', async (req, res) => {
   }
 
   const chunkDir = path.join(TEMP_CHUNK_DIR, fileId);
-  if (!fs.existsSync(chunkDir)) {
-    res.status(400).json({ success: false, error: '分片目录不存在，请重新上传' });
-    return;
-  }
 
-  // 校验点位是否存在于数据库中（防止向无效点位写入文件后产生孤儿文件）
-  const pointRow = db.prepare('SELECT id FROM point_info WHERE id = ?').get(Number(pointId));
-  if (!pointRow) {
-    await fse.remove(chunkDir);
-    res.status(400).json({ success: false, error: '点位不存在' });
-    return;
-  }
-
-  // 读取所有分片并按序号排序
-  const chunkFiles = fs
-    .readdirSync(chunkDir)
-    .filter((f) => f.match(/^chunk-\d+$/))
-    .sort((a, b) => {
-      const ai = parseInt(a.match(/^chunk-(\d+)$/)![1]);
-      const bi = parseInt(b.match(/^chunk-(\d+)$/)![1]);
-      return ai - bi;
-    });
-
-  if (chunkFiles.length === 0) {
-    res.status(400).json({ success: false, error: '未找到分片文件' });
-    return;
-  }
-
-  // 校验分片完整性：实际分片数必须等于声明的 totalChunks
-  const expectedTotal = Number(totalChunks);
-  if (chunkFiles.length !== expectedTotal) {
-    await fse.remove(chunkDir);
-    res.status(400).json({
-      success: false,
-      error: `分片不完整（期望 ${expectedTotal} 个，实际 ${chunkFiles.length} 个），请重新上传`,
-    });
-    return;
-  }
-
-  const pointStorageDir = path.join(STORAGE_DIR, `point_${pointId}`);
-  await fse.ensureDir(pointStorageDir);
-
-  // 文件名加入随机后缀：仅用 Date.now() 时，同一点位+同一类型在同一毫秒内完成两次上传
-  // 会生成同名路径，后一次 rename 覆盖前一次，随后 INSERT 触发 file_path UNIQUE 冲突，
-  // 而 catch 中的清理会误删前一次（已入库）的文件，造成「有记录无文件」的静默数据丢失
-  const savedFileName = `${type}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}${ext}`;
-  const savedFilePath = path.join(pointStorageDir, savedFileName);
-  const tmpFilePath = `${savedFilePath}.tmp`; // 临时文件，合并成功后再 rename
-  const relPath = path.join(`point_${pointId}`, savedFileName);
-
-  let totalSize = 0;
-
+  // 外层兜底 try/catch：async handler 中抛出的同步异常（DB 繁忙、目录被并发删除的
+  // TOCTOU 窗口等）不会被 Express 4 捕获，会升级为 unhandledRejection 导致进程退出。
+  // 此处统一捕获后转交全局 error 中间件（保留 SQLITE_* 的语义化响应）
   try {
-    // ── 步骤1：合并分片到 .tmp 临时文件 ──
-    // 通过 pipeline 消费异步生成器：自动处理写流背压（write 返回 false 时暂停读取），
-    // 避免大文件把所有分片堆积在内存中（容器内存受限时会 OOM）
-    const readChunks = async function* (): AsyncGenerator<Buffer> {
-      for (const chunkFile of chunkFiles) {
-        const chunkBuf = await fse.readFile(path.join(chunkDir, chunkFile));
-        totalSize += chunkBuf.length;
-        yield chunkBuf;
-      }
-    };
-    await pipeline(readChunks(), fs.createWriteStream(tmpFilePath));
+    if (!fs.existsSync(chunkDir)) {
+      res.status(400).json({ success: false, error: '分片目录不存在，请重新上传' });
+      return;
+    }
 
-    // ── 步骤2：大小校验（在 rename 前，避免污染最终目录） ──
-    // 按类型分别校验：图片硬上限默认 600KB（前端压缩目标 500KB，留冗余）、
-    // 视频默认 80MB，此处防御绕过前端直接调用接口的超大文件
-    const isImage = isImageType(type);
-    const maxSize = isImage ? IMAGE_MAX_SIZE : VIDEO_MAX_SIZE;
-    if (totalSize > maxSize) {
-      const limitLabel = isImage ? `${IMAGE_MAX_SIZE_KB}KB` : `${VIDEO_MAX_SIZE_MB}MB`;
-      safeUnlink(tmpFilePath);
+    // 校验点位是否存在于数据库中（防止向无效点位写入文件后产生孤儿文件）
+    const pointRow = db.prepare('SELECT id FROM point_info WHERE id = ?').get(Number(pointId));
+    if (!pointRow) {
+      await fse.remove(chunkDir);
+      res.status(400).json({ success: false, error: '点位不存在' });
+      return;
+    }
+
+    // 读取所有分片并按序号排序
+    const chunkFiles = fs
+      .readdirSync(chunkDir)
+      .filter((f) => f.match(/^chunk-\d+$/))
+      .sort((a, b) => {
+        const ai = parseInt(a.match(/^chunk-(\d+)$/)![1]);
+        const bi = parseInt(b.match(/^chunk-(\d+)$/)![1]);
+        return ai - bi;
+      });
+
+    if (chunkFiles.length === 0) {
+      res.status(400).json({ success: false, error: '未找到分片文件' });
+      return;
+    }
+
+    // 校验分片完整性：实际分片数必须等于声明的 totalChunks
+    const expectedTotal = Number(totalChunks);
+    if (chunkFiles.length !== expectedTotal) {
       await fse.remove(chunkDir);
       res.status(400).json({
         success: false,
-        error: `文件大小超过限制（${limitLabel}）`,
+        error: `分片不完整（期望 ${expectedTotal} 个，实际 ${chunkFiles.length} 个），请重新上传`,
       });
       return;
     }
 
-    // ── 步骤2.5：图片可解析性校验（防御性，前端已校验） ──
-    // 仅拒绝无法解析尺寸的损坏/伪造图片，不限制像素比例（普通照片即可）
-    if (isImageType(type)) {
-      const dim = getImageDimension(tmpFilePath);
-      if (!dim) {
-        safeUnlink(tmpFilePath);
+    // 校验分片序号连续性：排序后第 i 个分片的序号必须恰好为 i（0..totalChunks-1）。
+    // 否则存在跳号/重复序号（如上传了 chunk-100 却没传 chunk-0），仅靠数量校验会放行，
+    // 合并出的文件内容与原文件错位，产生静默脏数据
+    for (let i = 0; i < chunkFiles.length; i++) {
+      const idx = parseInt(chunkFiles[i].match(/^chunk-(\d+)$/)![1]);
+      if (idx !== i) {
         await fse.remove(chunkDir);
         res.status(400).json({
           success: false,
-          error: '无法解析图片尺寸，文件可能已损坏或格式不正确',
+          error: `分片序号不连续（第 ${i} 片缺失或序号异常），请重新上传`,
         });
         return;
       }
     }
 
-    // ── 步骤2.6：视频时长校验（防御性，前端已校验） ──
-    // 要求时长 ≥ 10 秒，低于 10 秒拒绝入库，避免脏数据落盘
-    if (!isImageType(type)) {
-      const duration = getVideoDuration(tmpFilePath);
-      if (duration === null) {
+    const pointStorageDir = path.join(STORAGE_DIR, `point_${pointId}`);
+    await fse.ensureDir(pointStorageDir);
+
+    // 文件名加入随机后缀：仅用 Date.now() 时，同一点位+同一类型在同一毫秒内完成两次上传
+    // 会生成同名路径，后一次 rename 覆盖前一次，随后 INSERT 触发 file_path UNIQUE 冲突，
+    // 而 catch 中的清理会误删前一次（已入库）的文件，造成「有记录无文件」的静默数据丢失
+    const savedFileName = `${type}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}${ext}`;
+    const savedFilePath = path.join(pointStorageDir, savedFileName);
+    const tmpFilePath = `${savedFilePath}.tmp`; // 临时文件，合并成功后再 rename
+    const relPath = path.join(`point_${pointId}`, savedFileName);
+
+    let totalSize = 0;
+
+    try {
+      // ── 步骤1：合并分片到 .tmp 临时文件 ──
+      // 通过 pipeline 消费异步生成器：自动处理写流背压（write 返回 false 时暂停读取），
+      // 避免大文件把所有分片堆积在内存中（容器内存受限时会 OOM）
+      const readChunks = async function* (): AsyncGenerator<Buffer> {
+        for (const chunkFile of chunkFiles) {
+          const chunkBuf = await fse.readFile(path.join(chunkDir, chunkFile));
+          totalSize += chunkBuf.length;
+          yield chunkBuf;
+        }
+      };
+      await pipeline(readChunks(), fs.createWriteStream(tmpFilePath));
+
+      // ── 步骤2：大小校验（在 rename 前，避免污染最终目录） ──
+      // 按类型分别校验：图片硬上限默认 600KB（前端压缩目标 500KB，留冗余）、
+      // 视频默认 80MB，此处防御绕过前端直接调用接口的超大文件
+      const isImage = isImageType(type);
+      const maxSize = isImage ? IMAGE_MAX_SIZE : VIDEO_MAX_SIZE;
+      if (totalSize > maxSize) {
+        const limitLabel = isImage ? `${IMAGE_MAX_SIZE_KB}KB` : `${VIDEO_MAX_SIZE_MB}MB`;
         safeUnlink(tmpFilePath);
         await fse.remove(chunkDir);
         res.status(400).json({
           success: false,
-          error: '无法解析视频时长，文件可能已损坏或不是有效的 MP4 文件',
+          error: `文件大小超过限制（${limitLabel}）`,
         });
         return;
       }
-      if (!isDurationValid(duration)) {
-        safeUnlink(tmpFilePath);
-        await fse.remove(chunkDir);
-        res.status(400).json({
-          success: false,
-          error: `视频时长必须 ≥ ${MIN_VIDEO_DURATION} 秒才能上传，当前时长 ${duration.toFixed(1)} 秒`,
-        });
-        return;
+
+      // ── 步骤2.5：图片可解析性校验（防御性，前端已校验） ──
+      // 仅拒绝无法解析尺寸的损坏/伪造图片，不限制像素比例（普通照片即可）
+      if (isImageType(type)) {
+        const dim = getImageDimension(tmpFilePath);
+        if (!dim) {
+          safeUnlink(tmpFilePath);
+          await fse.remove(chunkDir);
+          res.status(400).json({
+            success: false,
+            error: '无法解析图片尺寸，文件可能已损坏或格式不正确',
+          });
+          return;
+        }
       }
-    }
 
-    // ── 步骤3：原子 rename 临时文件到最终路径 ──
-    // 同分区 rename 是原子操作，进程被杀时不会留下半截文件
-    fs.renameSync(tmpFilePath, savedFilePath);
+      // ── 步骤2.6：视频时长校验（防御性，前端已校验） ──
+      // 要求时长 ≥ 10 秒，低于 10 秒拒绝入库，避免脏数据落盘
+      if (!isImageType(type)) {
+        const duration = getVideoDuration(tmpFilePath);
+        if (duration === null) {
+          safeUnlink(tmpFilePath);
+          await fse.remove(chunkDir);
+          res.status(400).json({
+            success: false,
+            error: '无法解析视频时长，文件可能已损坏或不是有效的 MP4 文件',
+          });
+          return;
+        }
+        if (!isDurationValid(duration)) {
+          safeUnlink(tmpFilePath);
+          await fse.remove(chunkDir);
+          res.status(400).json({
+            success: false,
+            error: `视频时长必须 ≥ ${MIN_VIDEO_DURATION} 秒才能上传，当前时长 ${duration.toFixed(1)} 秒`,
+          });
+          return;
+        }
+      }
 
-    // ── 步骤4：INSERT 新素材记录（v2 起每点位不限数量，不覆盖旧素材） ──
-    // 先落库后删分片：即使此处崩溃，最坏是新文件成孤儿，由定时清理兜底
-    const insertResult = db
-      .prepare(
-        `
+      // ── 步骤3：原子 rename 临时文件到最终路径 ──
+      // 同分区 rename 是原子操作，进程被杀时不会留下半截文件
+      fs.renameSync(tmpFilePath, savedFilePath);
+
+      // ── 步骤4：INSERT 新素材记录（v2 起每点位不限数量，不覆盖旧素材） ──
+      // 先落库后删分片：即使此处崩溃，最坏是新文件成孤儿，由定时清理兜底
+      const insertResult = db
+        .prepare(
+          `
         INSERT INTO material (point_id, material_type, file_path, file_size, upload_time)
         VALUES (?, ?, ?, ?, datetime('now'))
       `,
-      )
-      .run(Number(pointId), type, relPath, totalSize);
+        )
+        .run(Number(pointId), type, relPath, totalSize);
 
-    // ── 步骤5：清理分片临时目录 ──
-    await fse.remove(chunkDir);
+      // ── 步骤5：清理分片临时目录 ──
+      await fse.remove(chunkDir);
 
-    res.json({
-      success: true,
-      data: {
-        id: Number(insertResult.lastInsertRowid),
-        pointId: Number(pointId),
-        type,
-        path: relPath,
-        size: totalSize,
-      },
-    });
+      res.json({
+        success: true,
+        data: {
+          id: Number(insertResult.lastInsertRowid),
+          pointId: Number(pointId),
+          type,
+          path: relPath,
+          size: totalSize,
+        },
+      });
+    } catch (err) {
+      console.error('[upload/complete] 合并失败:', (err as Error).message);
+      // 清理临时文件与最终文件（均可能因崩溃残留）
+      safeUnlink(tmpFilePath);
+      safeUnlink(savedFilePath);
+      await fse.remove(chunkDir);
+      res.status(500).json({ success: false, error: '文件合并失败' });
+    }
   } catch (err) {
-    console.error('[upload/complete] 合并失败:', (err as Error).message);
-    // 清理临时文件与最终文件（均可能因崩溃残留）
-    safeUnlink(tmpFilePath);
-    safeUnlink(savedFilePath);
-    await fse.remove(chunkDir);
-    res.status(500).json({ success: false, error: '文件合并失败' });
+    console.error('[upload/complete] 处理失败:', (err as Error).message);
+    // 清理残留分片目录（不存在时忽略），转交全局错误中间件
+    await fse.remove(chunkDir).catch(() => {});
+    next(err);
   }
 });
 
