@@ -1,7 +1,7 @@
 /**
  * 素材详情弹窗
- * 4 类素材（主图/备选图/主视频/备选视频）：
- *   - 图片缩略图预览
+ * 展示点位的全部素材（数量不限）：
+ *   - 图片缩略图预览（通过 blob URL，需管理员鉴权）
  *   - 下载（带进度条）
  *   - 删除
  */
@@ -9,7 +9,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { adminDownload, adminDeleteMaterial, getToken } from '@/lib/api';
 import ProgressBar from '@/components/ProgressBar';
 import ConfirmDialog from '@/components/ConfirmDialog';
-import type { PointDetail, MaterialType } from '@/types';
+import type { PointDetail, MaterialItem } from '@/types';
+import { formatBeijingTime, formatFileSize } from '@/lib/utils';
 
 interface Props {
   point: PointDetail;
@@ -17,39 +18,14 @@ interface Props {
   onChanged: () => void;
 }
 
-/** 素材类型元信息 */
-const MATERIAL_META: {
-  type: MaterialType;
-  title: string;
-  pathKey: 'img_path' | 'img_path_alt' | 'video_path' | 'video_path_alt';
-  hasKey: 'has_image' | 'has_image_alt' | 'has_video' | 'has_video_alt';
-  isImage: boolean;
-}[] = [
-  { type: 'img', title: '主图片', pathKey: 'img_path', hasKey: 'has_image', isImage: true },
-  {
-    type: 'img_alt',
-    title: '备选图片',
-    pathKey: 'img_path_alt',
-    hasKey: 'has_image_alt',
-    isImage: true,
-  },
-  { type: 'video', title: '主视频', pathKey: 'video_path', hasKey: 'has_video', isImage: false },
-  {
-    type: 'video_alt',
-    title: '备选视频',
-    pathKey: 'video_path_alt',
-    hasKey: 'has_video_alt',
-    isImage: false,
-  },
-];
-
 export default function MaterialDetailModal({ point, onClose, onChanged }: Props) {
-  const [downloadType, setDownloadType] = useState<MaterialType | null>(null);
+  const [downloadId, setDownloadId] = useState<number | null>(null);
   const [downloadProgress, setDownloadProgress] = useState(0);
-  const [deleteConfirm, setDeleteConfirm] = useState<MaterialType | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<MaterialItem | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
-  const [imageErrors, setImageErrors] = useState<Record<string, boolean>>({});
+  // 图片素材 id → blob URL（受鉴权保护的图片预览）
+  const [imageUrls, setImageUrls] = useState<Record<number, string>>({});
+  const [imageErrors, setImageErrors] = useState<Record<number, boolean>>({});
 
   /**
    * 通过 Authorization Header 获取受保护的图片，转为 blob URL 用于预览
@@ -71,30 +47,25 @@ export default function MaterialDetailModal({ point, onClose, onChanged }: Props
   }, []);
 
   /**
-   * 加载所有已上传图片的 blob URL，在组件卸载或点位变化时自动 revoke
+   * 加载所有已上传图片的 blob URL，在组件卸载或素材变化时自动 revoke
    */
   useEffect(() => {
-    const imageMeta = MATERIAL_META.filter((m) => m.isImage && point[m.hasKey] && point[m.pathKey]);
-    if (imageMeta.length === 0) return;
+    const images = point.materials.filter((m) => m.type === 'img');
+    if (images.length === 0) return;
 
     let cancelled = false;
-    const urls: Record<string, string> = {};
-    const errs: Record<string, boolean> = {};
+    const urls: Record<number, string> = {};
+    const errs: Record<number, boolean> = {};
 
     (async () => {
-      for (const meta of imageMeta) {
-        const path = point[meta.pathKey];
-        if (!path) continue;
-        const blobUrl = await loadImageBlob(path);
+      for (const m of images) {
+        const blobUrl = await loadImageBlob(m.path);
         if (cancelled) {
           if (blobUrl) URL.revokeObjectURL(blobUrl);
           return;
         }
-        if (blobUrl) {
-          urls[meta.type] = blobUrl;
-        } else {
-          errs[meta.type] = true;
-        }
+        if (blobUrl) urls[m.id] = blobUrl;
+        else errs[m.id] = true;
       }
       setImageUrls(urls);
       setImageErrors(errs);
@@ -110,36 +81,37 @@ export default function MaterialDetailModal({ point, onClose, onChanged }: Props
     };
   }, [point, loadImageBlob]);
 
-  const handleDownload = async (type: MaterialType) => {
-    const meta = MATERIAL_META.find((m) => m.type === type)!;
-    const filePath = point[meta.pathKey];
-    const ext = filePath ? filePath.substring(filePath.lastIndexOf('.')) : '';
+  const handleDownload = async (item: MaterialItem) => {
+    const ext = item.path.substring(item.path.lastIndexOf('.'));
 
-    setDownloadType(type);
+    setDownloadId(item.id);
     setDownloadProgress(0);
     setError(null);
 
     try {
-      await adminDownload(point.id, type, ext, (p) => setDownloadProgress(p));
+      await adminDownload(item.id, ext, (p) => setDownloadProgress(p));
     } catch (err) {
       setError(err instanceof Error ? err.message : '下载失败');
     } finally {
       setTimeout(() => {
-        setDownloadType(null);
+        setDownloadId(null);
         setDownloadProgress(0);
       }, 1000);
     }
   };
 
-  const handleDelete = async (type: MaterialType) => {
+  const handleDelete = async (item: MaterialItem) => {
     setError(null);
     try {
-      await adminDeleteMaterial(point.id, type);
+      await adminDeleteMaterial(item.id);
       onChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : '删除失败');
     }
   };
+
+  const images = point.materials.filter((m) => m.type === 'img');
+  const videos = point.materials.filter((m) => m.type === 'video');
 
   return (
     <div
@@ -157,7 +129,8 @@ export default function MaterialDetailModal({ point, onClose, onChanged }: Props
               点位 <span className="text-accent">#{point.id}</span>
             </h3>
             <p className="text-xs text-base-400 mt-0.5">
-              {point.city} · {point.district} · {point.township}
+              {point.district} · {point.township} · 图片 {point.img_count} · 视频{' '}
+              {point.video_count}
             </p>
           </div>
           <button
@@ -175,99 +148,138 @@ export default function MaterialDetailModal({ point, onClose, onChanged }: Props
             </div>
           )}
 
-          {MATERIAL_META.map((meta) => {
-            const has = point[meta.hasKey];
-            const path = point[meta.pathKey];
-            const isAlt = meta.type.endsWith('_alt');
-            const accentText = isAlt ? 'text-status-yellow' : 'text-accent';
+          {point.materials.length === 0 && (
+            <div className="text-center text-sm text-base-400 py-8">该点位暂无已上传素材</div>
+          )}
 
-            return (
-              <div key={meta.type} className="bg-base-800 border border-base-600 rounded-lg p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <h4 className="font-mono text-sm text-base-100 flex items-center gap-2">
-                    <span
-                      className={`w-1.5 h-1.5 rounded-full ${isAlt ? 'bg-status-yellow' : 'bg-accent'}`}
-                    ></span>
-                    {meta.title}
-                  </h4>
-                  <span
-                    className={`text-xs font-mono ${has ? 'text-status-green' : 'text-status-red'}`}
+          {/* 图片素材 */}
+          {images.length > 0 && (
+            <div>
+              <h4 className="font-mono text-sm text-base-100 mb-3 flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-accent"></span>
+                图片（{images.length}）
+              </h4>
+              <div className="grid grid-cols-2 gap-3">
+                {images.map((m) => (
+                  <div
+                    key={m.id}
+                    className="bg-base-800 border border-base-600 rounded-lg p-3 space-y-2"
                   >
-                    {has ? '已上传' : '未上传'}
-                  </span>
-                </div>
-
-                {has && path ? (
-                  <div className="space-y-3">
                     {/* 图片预览（通过 blob URL 展示受鉴权保护的图片） */}
-                    {meta.isImage && (
-                      <div
-                        className="bg-base-900 rounded-lg overflow-hidden flex items-center justify-center"
-                        style={{ maxHeight: '260px' }}
-                      >
-                        {imageUrls[meta.type] ? (
-                          <img
-                            src={imageUrls[meta.type]}
-                            alt={`点位${point.id} ${meta.title}`}
-                            className="max-w-full object-contain"
-                            style={{ maxHeight: '260px' }}
-                          />
-                        ) : imageErrors[meta.type] ? (
-                          <div className="text-sm text-status-red py-8">图片加载失败</div>
-                        ) : (
-                          <div className="text-sm text-base-400 py-8 animate-pulse">
-                            加载图片中...
-                          </div>
-                        )}
-                      </div>
-                    )}
-                    {!meta.isImage && (
-                      <div className="text-center text-sm text-base-300 py-4 bg-base-900 rounded">
-                        视频已上传（不提供在线播放）
-                      </div>
-                    )}
+                    <div
+                      className="bg-base-900 rounded-lg overflow-hidden flex items-center justify-center"
+                      style={{ maxHeight: '200px' }}
+                    >
+                      {imageUrls[m.id] ? (
+                        <img
+                          src={imageUrls[m.id]}
+                          alt={`点位${point.id} 图片 #${m.id}`}
+                          className="max-w-full object-contain"
+                          style={{ maxHeight: '200px' }}
+                        />
+                      ) : imageErrors[m.id] ? (
+                        <div className="text-sm text-status-red py-8">图片加载失败</div>
+                      ) : (
+                        <div className="text-sm text-base-400 py-8 animate-pulse">
+                          加载图片中...
+                        </div>
+                      )}
+                    </div>
 
-                    {downloadType === meta.type && (
-                      <ProgressBar percent={downloadProgress} label={`下载${meta.title}中`} />
+                    <div className="text-[10px] text-base-400 font-mono flex items-center justify-between">
+                      <span title={m.path}>{m.path.split('/').pop()}</span>
+                      <span className="shrink-0 ml-2">{formatFileSize(m.size)}</span>
+                    </div>
+
+                    {downloadId === m.id && (
+                      <ProgressBar percent={downloadProgress} label="下载中" />
                     )}
 
                     <div className="flex gap-2">
                       <button
-                        onClick={() => handleDownload(meta.type)}
-                        disabled={downloadType !== null}
-                        className={`flex-1 py-2 text-sm ${accentText === 'text-accent' ? 'bg-accent text-base-900' : 'bg-status-yellow text-base-900'} rounded hover:opacity-90 transition-opacity disabled:opacity-50 font-medium`}
+                        onClick={() => handleDownload(m)}
+                        disabled={downloadId !== null}
+                        className="flex-1 py-1.5 text-xs bg-accent text-base-900 rounded hover:opacity-90 transition-opacity disabled:opacity-50 font-medium"
                       >
-                        下载{meta.title}
+                        下载
                       </button>
                       <button
-                        onClick={() => setDeleteConfirm(meta.type)}
-                        disabled={downloadType !== null}
-                        className="px-4 py-2 text-sm text-status-red border border-status-red/30 rounded hover:bg-status-red/10 transition-colors"
+                        onClick={() => setDeleteTarget(m)}
+                        disabled={downloadId !== null}
+                        className="px-3 py-1.5 text-xs text-status-red border border-status-red/30 rounded hover:bg-status-red/10 transition-colors"
                       >
                         删除
                       </button>
                     </div>
                   </div>
-                ) : (
-                  <div className="text-center text-sm text-base-400 py-6">暂无{meta.title}素材</div>
-                )}
+                ))}
               </div>
-            );
-          })}
+            </div>
+          )}
+
+          {/* 视频素材 */}
+          {videos.length > 0 && (
+            <div>
+              <h4 className="font-mono text-sm text-base-100 mb-3 flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-status-yellow"></span>
+                视频（{videos.length}）
+              </h4>
+              <div className="space-y-2">
+                {videos.map((m) => (
+                  <div
+                    key={m.id}
+                    className="bg-base-800 border border-base-600 rounded-lg p-3 space-y-2"
+                  >
+                    <div className="text-xs text-base-300 py-2 bg-base-900 rounded">
+                      视频已上传（不提供在线播放）
+                    </div>
+                    <div className="text-[10px] text-base-400 font-mono flex items-center justify-between">
+                      <span title={m.path}>{m.path.split('/').pop()}</span>
+                      <span className="shrink-0 ml-2">{formatFileSize(m.size)}</span>
+                    </div>
+                    <div className="text-[10px] text-base-500 font-mono">
+                      {formatBeijingTime(m.upload_time)}
+                    </div>
+                    {downloadId === m.id && (
+                      <ProgressBar percent={downloadProgress} label="下载中" />
+                    )}
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleDownload(m)}
+                        disabled={downloadId !== null}
+                        className="flex-1 py-1.5 text-xs bg-accent text-base-900 rounded hover:opacity-90 transition-opacity disabled:opacity-50 font-medium"
+                      >
+                        下载
+                      </button>
+                      <button
+                        onClick={() => setDeleteTarget(m)}
+                        disabled={downloadId !== null}
+                        className="px-3 py-1.5 text-xs text-status-red border border-status-red/30 rounded hover:bg-status-red/10 transition-colors"
+                      >
+                        删除
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
       {/* 删除确认 */}
-      {deleteConfirm && (
+      {deleteTarget && (
         <ConfirmDialog
           title="确认删除素材"
-          message={`确定删除点位 #${point.id} 的${MATERIAL_META.find((m) => m.type === deleteConfirm)!.title}素材吗？此操作不可撤销。`}
+          message={`确定删除该${
+            deleteTarget.type === 'img' ? '图片' : '视频'
+          }素材吗？此操作不可撤销。`}
           confirmText="确认删除"
           onConfirm={() => {
-            handleDelete(deleteConfirm);
-            setDeleteConfirm(null);
+            handleDelete(deleteTarget);
+            setDeleteTarget(null);
           }}
-          onCancel={() => setDeleteConfirm(null)}
+          onCancel={() => setDeleteTarget(null)}
         />
       )}
     </div>

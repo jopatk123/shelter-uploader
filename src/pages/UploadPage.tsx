@@ -5,18 +5,17 @@ import { useState, useEffect, useCallback } from 'react';
 import PointDotGrid from '@/components/PointDotGrid';
 import ImageUploadPanel from '@/components/ImageUploadPanel';
 import VideoUploadPanel from '@/components/VideoUploadPanel';
+import MaterialWall from '@/components/MaterialWall';
 import ConfirmDialog from '@/components/ConfirmDialog';
-import { fetchPoints, downloadPublicStatsCsv } from '@/lib/api';
-import type { PointStatus } from '@/types';
+import { fetchPoints, fetchMaterials, downloadPublicStatsCsv } from '@/lib/api';
+import type { PointStatus, MaterialItem } from '@/types';
 
 export default function UploadPage() {
   const [points, setPoints] = useState<PointStatus[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<number | null>(null);
-  const [confirmAction, setConfirmAction] = useState<{
-    message: string;
-    callback: () => void;
-  } | null>(null);
+  const [materials, setMaterials] = useState<MaterialItem[]>([]);
+  const [materialsLoading, setMaterialsLoading] = useState(false);
   const [showOverLimit, setShowOverLimit] = useState(false);
   const [showNoGpsWarning, setShowNoGpsWarning] = useState(false);
   const [statsDownloading, setStatsDownloading] = useState(false);
@@ -36,17 +35,37 @@ export default function UploadPage() {
     loadPoints();
   }, [loadPoints]);
 
+  // 选中点位变化时加载该点位的素材墙（上传成功后也会刷新）
+  const loadMaterials = useCallback(async (pointId: number) => {
+    setMaterialsLoading(true);
+    try {
+      const data = await fetchMaterials(pointId);
+      setMaterials(data);
+    } catch (err) {
+      console.error('加载素材列表失败:', err);
+      setMaterials([]);
+    } finally {
+      setMaterialsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (selectedId === null) {
+      setMaterials([]);
+      return;
+    }
+    loadMaterials(selectedId);
+  }, [selectedId, loadMaterials]);
+
   const selectedPoint = points.find((p) => p.id === selectedId) || null;
-  const completedCount = points.filter((p) => p.has_image || p.has_video).length;
+  const completedCount = points.filter((p) => p.uploaded_count > 0).length;
   const completedPercent =
     points.length > 0 ? Math.round((completedCount / points.length) * 100) : 0;
 
-  const handleNeedConfirm = (callback: () => void) => {
-    setConfirmAction({
-      message: `点位 #${selectedId} 已有该类型素材，是否覆盖原有素材？`,
-      callback,
-    });
-  };
+  const handleUploadComplete = useCallback(() => {
+    loadPoints();
+    if (selectedId !== null) loadMaterials(selectedId);
+  }, [loadPoints, selectedId, loadMaterials]);
 
   const handleDownloadStats = async () => {
     setStatsDownloading(true);
@@ -161,28 +180,24 @@ export default function UploadPage() {
                   </div>
                   <div className="pt-2 border-t border-base-600 flex flex-wrap gap-x-4 gap-y-1 text-xs">
                     <span
-                      className={selectedPoint.has_image ? 'text-status-green' : 'text-status-red'}
+                      className={
+                        selectedPoint.img_count > 0 ? 'text-status-green' : 'text-status-red'
+                      }
                     >
-                      主图: {selectedPoint.has_image ? '已上传' : '未上传'}
+                      图片:{' '}
+                      {selectedPoint.img_count > 0
+                        ? `已上传 ${selectedPoint.img_count} 张`
+                        : '未上传'}
                     </span>
                     <span
                       className={
-                        selectedPoint.has_image_alt ? 'text-status-green' : 'text-status-red'
+                        selectedPoint.video_count > 0 ? 'text-status-green' : 'text-status-red'
                       }
                     >
-                      备图: {selectedPoint.has_image_alt ? '已上传' : '未上传'}
-                    </span>
-                    <span
-                      className={selectedPoint.has_video ? 'text-status-green' : 'text-status-red'}
-                    >
-                      主视频: {selectedPoint.has_video ? '已上传' : '未上传'}
-                    </span>
-                    <span
-                      className={
-                        selectedPoint.has_video_alt ? 'text-status-green' : 'text-status-red'
-                      }
-                    >
-                      备视频: {selectedPoint.has_video_alt ? '已上传' : '未上传'}
+                      视频:{' '}
+                      {selectedPoint.video_count > 0
+                        ? `已上传 ${selectedPoint.video_count} 个`
+                        : '未上传'}
                     </span>
                   </div>
                 </div>
@@ -191,64 +206,33 @@ export default function UploadPage() {
                   必须先选择点位才能上传素材
                 </div>
               )}
+
+              {/* 素材墙 */}
+              {selectedPoint && (
+                <div className="mt-4">
+                  <MaterialWall materials={materials} loading={materialsLoading} />
+                </div>
+              )}
             </div>
           </div>
 
-          {/* 右侧：上传区（4面板：主图/备选图/主视频/备选视频） */}
+          {/* 右侧：上传区（图片 / 视频，均不限数量） */}
           <div className="col-span-2 grid grid-cols-2 gap-4">
             <ImageUploadPanel
               key={`${selectedId ?? 'none'}-img`}
               pointId={selectedId}
-              hasExisting={!!selectedPoint?.has_image}
-              onUploadComplete={loadPoints}
-              onNeedConfirm={handleNeedConfirm}
+              onUploadComplete={handleUploadComplete}
               onMissingGps={() => setShowNoGpsWarning(true)}
-              type="img"
-            />
-            <ImageUploadPanel
-              key={`${selectedId ?? 'none'}-img_alt`}
-              pointId={selectedId}
-              hasExisting={!!selectedPoint?.has_image_alt}
-              onUploadComplete={loadPoints}
-              onNeedConfirm={handleNeedConfirm}
-              onMissingGps={() => setShowNoGpsWarning(true)}
-              type="img_alt"
             />
             <VideoUploadPanel
               key={`${selectedId ?? 'none'}-video`}
               pointId={selectedId}
-              hasExisting={!!selectedPoint?.has_video}
-              onUploadComplete={loadPoints}
-              onNeedConfirm={handleNeedConfirm}
+              onUploadComplete={handleUploadComplete}
               onOverLimit={() => setShowOverLimit(true)}
-              type="video"
-            />
-            <VideoUploadPanel
-              key={`${selectedId ?? 'none'}-video_alt`}
-              pointId={selectedId}
-              hasExisting={!!selectedPoint?.has_video_alt}
-              onUploadComplete={loadPoints}
-              onNeedConfirm={handleNeedConfirm}
-              onOverLimit={() => setShowOverLimit(true)}
-              type="video_alt"
             />
           </div>
         </div>
       </main>
-
-      {/* 覆盖确认弹窗 */}
-      {confirmAction && (
-        <ConfirmDialog
-          title="确认覆盖素材"
-          message={confirmAction.message}
-          confirmText="覆盖上传"
-          onConfirm={() => {
-            confirmAction.callback();
-            setConfirmAction(null);
-          }}
-          onCancel={() => setConfirmAction(null)}
-        />
-      )}
 
       {/* 视频超限指引弹窗 */}
       {showOverLimit && (

@@ -1,7 +1,7 @@
 /**
  * API 客户端
  */
-import type { PointStatus, PointDetail, ApiResponse, MaterialType } from '@/types';
+import type { PointStatus, PointDetail, MaterialItem, ApiResponse, MaterialType } from '@/types';
 
 const TOKEN_KEY = 'uploader_admin_token';
 
@@ -24,6 +24,16 @@ export async function fetchPoints(): Promise<PointStatus[]> {
   const res = await fetch('/api/points');
   const json: ApiResponse<PointStatus[]> = await res.json();
   if (!json.success || !json.data) throw new Error(json.error || '获取点位失败');
+  return json.data;
+}
+
+/**
+ * 获取单个点位的全部素材列表（上传页素材墙使用，公开免鉴权）
+ */
+export async function fetchMaterials(pointId: number): Promise<MaterialItem[]> {
+  const res = await fetch(`/api/points/${pointId}/materials`);
+  const json: ApiResponse<MaterialItem[]> = await res.json();
+  if (!json.success || !json.data) throw new Error(json.error || '获取素材列表失败');
   return json.data;
 }
 
@@ -80,10 +90,10 @@ export async function adminFetchPointDetail(id: number): Promise<PointDetail> {
 }
 
 /**
- * 管理员删除素材
+ * 管理员删除素材（:id 为素材行 id）
  */
-export async function adminDeleteMaterial(id: number, type: MaterialType): Promise<void> {
-  const res = await fetch(`/api/admin/material/${id}?type=${type}`, {
+export async function adminDeleteMaterial(id: number): Promise<void> {
+  const res = await fetch(`/api/admin/material/${id}`, {
     method: 'DELETE',
     headers: { Authorization: `Bearer ${getToken()}` },
   });
@@ -92,15 +102,14 @@ export async function adminDeleteMaterial(id: number, type: MaterialType): Promi
 }
 
 /**
- * 管理员下载素材（带进度回调）
+ * 管理员下载素材（带进度回调，:id 为素材行 id）
  */
 export async function adminDownload(
   id: number,
-  type: MaterialType,
   ext: string,
   onProgress: (percent: number) => void,
 ): Promise<void> {
-  const res = await fetch(`/api/admin/download/${id}?type=${type}`, {
+  const res = await fetch(`/api/admin/download/${id}`, {
     headers: { Authorization: `Bearer ${getToken()}` },
   });
 
@@ -115,7 +124,7 @@ export async function adminDownload(
   if (!res.body || !total) {
     // 无法获取进度，直接用 blob 下载
     const blob = await res.blob();
-    triggerDownload(blob, getDownloadFileName(id, type, ext));
+    triggerDownload(blob, getDownloadFileName(id, ext));
     onProgress(100);
     return;
   }
@@ -135,12 +144,12 @@ export async function adminDownload(
   }
 
   const blob = new Blob(chunks as BlobPart[]);
-  triggerDownload(blob, getDownloadFileName(id, type, ext));
+  triggerDownload(blob, getDownloadFileName(id, ext));
   onProgress(100);
 }
 
-function getDownloadFileName(id: number, type: MaterialType, ext: string): string {
-  return `point_${id}_${type}${ext}`;
+function getDownloadFileName(id: number, ext: string): string {
+  return `material_${id}${ext}`;
 }
 
 function triggerDownload(blob: Blob, filename: string): void {

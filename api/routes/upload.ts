@@ -1,6 +1,7 @@
 /**
  * 分片上传接口（公开免鉴权）
  * 支持分片合并、文件后缀/大小二次校验
+ * 每点位不限上传数量：/complete 为 INSERT 语义，不再覆盖旧素材
  */
 import { Router } from 'express';
 import multer from 'multer';
@@ -15,36 +16,32 @@ const router = Router();
 
 // 分片大小：默认 5MB
 const CHUNK_SIZE = parseInt(process.env.CHUNK_SIZE || '5', 10) * 1024 * 1024;
-// 视频单文件上限：100MB
-const VIDEO_MAX_SIZE = 100 * 1024 * 1024;
+// 视频单文件上限：默认 100MB，可通过 .env 的 VIDEO_MAX_SIZE_MB 调整
+const VIDEO_MAX_SIZE_MB = parseInt(process.env.VIDEO_MAX_SIZE_MB || '100', 10);
+const VIDEO_MAX_SIZE = VIDEO_MAX_SIZE_MB * 1024 * 1024;
 
 // 允许的文件后缀
 const IMAGE_EXTS = ['.jpg', '.jpeg', '.png', '.webp'];
 const VIDEO_EXTS = ['.mp4'];
 
 /**
- * 素材类型 → 数据库列名 映射
- * img / img_alt / video / video_alt
+ * 素材类型（v2 起不分主/备，每点位不限数量）
  */
-const TYPE_COLUMN: Record<string, string> = {
-  img: 'img_path',
-  img_alt: 'img_path_alt',
-  video: 'video_path',
-  video_alt: 'video_path_alt',
-};
+const MATERIAL_TYPES = ['img', 'video'] as const;
+type MaterialType = (typeof MATERIAL_TYPES)[number];
+
+/**
+ * 校验 type 合法性
+ */
+function isValidType(type: string): type is MaterialType {
+  return (MATERIAL_TYPES as readonly string[]).includes(type);
+}
 
 /**
  * 判断 type 是否为图片类
  */
 function isImageType(type: string): boolean {
-  return type === 'img' || type === 'img_alt';
-}
-
-/**
- * 校验 type 合法性，返回列名；非法返回 null
- */
-function validateType(type: string): string | null {
-  return TYPE_COLUMN[type] ?? null;
+  return type === 'img';
 }
 
 /**
@@ -107,7 +104,7 @@ router.post('/chunk', upload.single('chunk'), (req, res) => {
     return;
   }
 
-  if (!type || !validateType(type)) {
+  if (!type || !isValidType(type)) {
     res.status(400).json({ success: false, error: 'type 参数非法' });
     return;
   }
@@ -191,13 +188,7 @@ router.post('/complete', async (req, res) => {
     return;
   }
 
-  if (!type || !fileName) {
-    res.status(400).json({ success: false, error: '缺少必要参数' });
-    return;
-  }
-
-  const column = validateType(type);
-  if (!column) {
+  if (!type || !isValidType(type)) {
     res.status(400).json({ success: false, error: '类型参数非法' });
     return;
   }
@@ -279,13 +270,13 @@ router.post('/complete', async (req, res) => {
     });
 
     // ── 步骤2：大小校验（在 rename 前，避免污染最终目录） ──
-    // 图片不限大小（前端已对超过10MB的图片进行压缩），仅校验视频
+    // 图片不限大小（前端已自动压缩到 300KB 以内），仅校验视频
     if (!isImageType(type) && totalSize > VIDEO_MAX_SIZE) {
       safeUnlink(tmpFilePath);
       await fse.remove(chunkDir);
       res.status(400).json({
         success: false,
-        error: `文件大小超过限制（${(VIDEO_MAX_SIZE / 1024 / 1024).toFixed(0)}MB）`,
+        error: `文件大小超过限制（${VIDEO_MAX_SIZE_MB}MB）`,
       });
       return;
     }
@@ -333,43 +324,29 @@ router.post('/complete', async (req, res) => {
     // 同分区 rename 是原子操作，进程被杀时不会留下半截文件
     fs.renameSync(tmpFilePath, savedFilePath);
 
-    // ── 步骤4：事务内查询旧路径并更新数据库 ──
-    // better-sqlite3 同步执行 + transaction 保证查询+更新的原子性
-    // 即使此处崩溃，最坏情况是新文件成孤儿，旧文件仍可访问，数据库一致性不受影响
-    const { oldPath } = db.transaction(() => {
-      const row = db
-        .prepare(`SELECT ${column} AS old_path FROM point_material WHERE point_id = ?`)
-        .get(pointId) as { old_path: string | null } | undefined;
-
-      const old = row?.old_path ?? null;
-
-      db.prepare(
+    // ── 步骤4：INSERT 新素材记录（v2 起每点位不限数量，不覆盖旧素材） ──
+    // 先落库后删分片：即使此处崩溃，最坏是新文件成孤儿，由定时清理兜底
+    const insertResult = db
+      .prepare(
         `
-        UPDATE point_material
-        SET ${column} = ?, upload_time = datetime('now')
-        WHERE point_id = ?
+        INSERT INTO material (point_id, material_type, file_path, file_size, upload_time)
+        VALUES (?, ?, ?, ?, datetime('now'))
       `,
-      ).run(relPath, pointId);
+      )
+      .run(Number(pointId), type, relPath, totalSize);
 
-      return { oldPath: old };
-    })();
-
-    // ── 步骤5：数据库提交后清理旧文件 ──
-    // 放在事务外：即使删除失败也不影响数据库一致性，最坏留下孤儿文件
-    if (oldPath) {
-      const oldFullPath = path.join(STORAGE_DIR, oldPath);
-      // 防御：避免误删新文件
-      if (oldFullPath !== savedFilePath) {
-        safeUnlink(oldFullPath);
-      }
-    }
-
-    // ── 步骤6：清理分片临时目录 ──
+    // ── 步骤5：清理分片临时目录 ──
     await fse.remove(chunkDir);
 
     res.json({
       success: true,
-      data: { pointId: parseInt(pointId), type, path: relPath, size: totalSize },
+      data: {
+        id: Number(insertResult.lastInsertRowid),
+        pointId: Number(pointId),
+        type,
+        path: relPath,
+        size: totalSize,
+      },
     });
   } catch (err) {
     console.error('[upload/complete] 合并失败:', (err as Error).message);

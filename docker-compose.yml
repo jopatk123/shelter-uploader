@@ -6,12 +6,13 @@ services:
     container_name: shelter-uploader
     restart: unless-stopped
     ports:
-      - "15000:3001"
+      - '15000:3001'
     environment:
       - PORT=3001
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-123456}
       - JWT_SECRET=${JWT_SECRET:-uploader-secret-key-2024}
       - CHUNK_SIZE=${CHUNK_SIZE:-5}
+      - VIDEO_MAX_SIZE_MB=${VIDEO_MAX_SIZE_MB:-100}
       - DATA_DIR=/app/data
     volumes:
       - ./data:/app/data

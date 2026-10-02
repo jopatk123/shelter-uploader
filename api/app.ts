@@ -140,16 +140,14 @@ cron.schedule('0 4 * * 0', async () => {
   try {
     if (!fs.existsSync(STORAGE_DIR)) return;
 
-    // 查询 DB 中所有素材路径
-    const rows = db
-      .prepare(`SELECT img_path, img_path_alt, video_path, video_path_alt FROM point_material`)
-      .all() as Array<Record<string, string | null>>;
+    // 查询 DB 中所有素材路径（v2 起为 material 多行表）
+    const rows = db.prepare(`SELECT file_path FROM material`).all() as Array<{
+      file_path: string;
+    }>;
 
     const validPaths = new Set<string>();
     for (const row of rows) {
-      for (const v of Object.values(row)) {
-        if (v) validPaths.add(v);
-      }
+      validPaths.add(row.file_path);
     }
 
     // 遍历 storage 目录

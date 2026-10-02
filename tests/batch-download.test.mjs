@@ -1,6 +1,11 @@
 /**
- * 批量下载接口测试
+ * 批量下载接口测试（手动脚本，依赖本地素材文件 图片测试.jpg / 视频测试.mp4）
  * 上传素材到多个点位 → 调用批量下载 → 验证 zip 内容
+ *
+ * v2 契约：
+ *   - 每点位不限上传数量，/complete 为 INSERT 语义并返回素材行 id
+ *   - 批量下载使用一次性票据鉴权（POST /api/admin/download-ticket 获取）
+ *   - 删除素材按素材行 id（DELETE /api/admin/material/:id）
  */
 import fs from 'fs';
 import path from 'path';
@@ -26,7 +31,11 @@ async function req(url, opts = {}) {
   const res = await fetch(url, opts);
   const text = await res.text();
   let json;
-  try { json = JSON.parse(text); } catch { json = text; }
+  try {
+    json = JSON.parse(text);
+  } catch {
+    json = text;
+  }
   return { status: res.status, json, headers: res.headers };
 }
 
@@ -37,6 +46,14 @@ async function login() {
     body: JSON.stringify({ password: ADMIN_PASSWORD }),
   });
   return r.json.data.token;
+}
+
+async function getTicket(token) {
+  const r = await req(`${API}/api/admin/download-ticket`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return r.json.data.ticket;
 }
 
 async function uploadToPoint(pointId, filePath, type) {
@@ -63,19 +80,25 @@ async function uploadToPoint(pointId, filePath, type) {
     if (r.status !== 200) fail(`点位${pointId} 分片${i} 上传失败`);
   }
 
-  // 合并
+  // 合并（v2：INSERT 新素材，返回素材行 id）
   const r = await req(`${API}/api/upload/complete`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ fileId, pointId: String(pointId), type, fileName }),
+    body: JSON.stringify({
+      fileId,
+      pointId: String(pointId),
+      type,
+      fileName,
+      totalChunks: String(totalChunks),
+    }),
   });
   if (r.status !== 200) fail(`点位${pointId} 合并失败: ${JSON.stringify(r.json)}`);
-  log(`  点位 ${pointId} 上传 ${type} 完成: ${r.json.data.path}`);
-  return r.json.data.path;
+  log(`  点位 ${pointId} 上传 ${type} 完成: id=${r.json.data.id} path=${r.json.data.path}`);
+  return r.json.data.id;
 }
 
-async function deleteMaterial(token, id, type) {
-  await req(`${API}/api/admin/material/${id}?type=${type}`, {
+async function deleteMaterial(token, materialId) {
+  await req(`${API}/api/admin/material/${materialId}`, {
     method: 'DELETE',
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -92,21 +115,22 @@ async function main() {
 
   // 1. 上传图片到 3 个点位
   log('\n--- 上传图片到 3 个点位 ---');
-  const imgPaths = {};
+  const imgIds = {};
   for (const pid of POINT_IDS) {
-    imgPaths[pid] = await uploadToPoint(pid, imgPath, 'img');
+    imgIds[pid] = await uploadToPoint(pid, imgPath, 'img');
   }
 
   // 2. 上传视频到 2 个点位
   log('\n--- 上传视频到 2 个点位 ---');
-  const videoPaths = {};
+  const videoIds = {};
   for (const pid of POINT_IDS.slice(0, 2)) {
-    videoPaths[pid] = await uploadToPoint(pid, videoPath, 'video');
+    videoIds[pid] = await uploadToPoint(pid, videoPath, 'video');
   }
 
-  // 3. 测试批量下载图片
+  // 3. 测试批量下载图片（一次性票据鉴权）
   log('\n--- 批量下载图片 ---');
-  const imgZipRes = await fetch(`${API}/api/admin/batch-download?type=img`, {
+  const imgTicket = await getTicket(token);
+  const imgZipRes = await fetch(`${API}/api/admin/batch-download?type=img&ticket=${imgTicket}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!imgZipRes.ok) fail(`批量下载图片失败: ${imgZipRes.status}`);
@@ -126,13 +150,13 @@ async function main() {
   console.log(imgList);
 
   // 验证 zip 包含 3 个文件
-  const imgFileLines = imgList.split('\n').filter(l => l.trim().endsWith('.jpg'));
+  const imgFileLines = imgList.split('\n').filter((l) => l.trim().endsWith('.jpg'));
   if (imgFileLines.length !== 3) {
     fail(`期望 3 个 jpg 文件，实际 ${imgFileLines.length}`);
   }
   log(`  ✅ 包含 ${imgFileLines.length} 个图片文件`);
 
-  // 验证文件名包含点位 ID 和区县
+  // 验证文件名包含点位 ID
   for (const line of imgFileLines) {
     const fname = line.trim().split(/\s+/).pop();
     log(`    - ${fname}`);
@@ -141,9 +165,13 @@ async function main() {
 
   // 4. 测试批量下载视频
   log('\n--- 批量下载视频 ---');
-  const videoZipRes = await fetch(`${API}/api/admin/batch-download?type=video`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const videoTicket = await getTicket(token);
+  const videoZipRes = await fetch(
+    `${API}/api/admin/batch-download?type=video&ticket=${videoTicket}`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+    },
+  );
   if (!videoZipRes.ok) fail(`批量下载视频失败: ${videoZipRes.status}`);
 
   const videoZipBuf = Buffer.from(await videoZipRes.arrayBuffer());
@@ -155,7 +183,7 @@ async function main() {
   log('  zip 内容:');
   console.log(videoList);
 
-  const videoFileLines = videoList.split('\n').filter(l => l.trim().endsWith('.mp4'));
+  const videoFileLines = videoList.split('\n').filter((l) => l.trim().endsWith('.mp4'));
   if (videoFileLines.length !== 2) {
     fail(`期望 2 个 mp4 文件，实际 ${videoFileLines.length}`);
   }
@@ -163,26 +191,31 @@ async function main() {
 
   // 5. 测试无效 type
   log('\n--- 测试无效 type ---');
-  const invalidRes = await req(`${API}/api/admin/batch-download?type=invalid`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const invalidTicket = await getTicket(token);
+  const invalidRes = await req(
+    `${API}/api/admin/batch-download?type=invalid&ticket=${invalidTicket}`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+    },
+  );
   if (invalidRes.status !== 400) fail(`期望 400，实际 ${invalidRes.status}`);
   log(`  ✅ 无效 type 返回 400: ${invalidRes.json.error}`);
 
-  // 6. 测试无素材的批量下载（先删除所有图片）
+  // 6. 测试无素材的批量下载（先删除所有图片素材）
   log('\n--- 测试无素材场景 ---');
   for (const pid of POINT_IDS) {
-    await deleteMaterial(token, pid, 'img');
+    await deleteMaterial(token, imgIds[pid]);
   }
-  const emptyRes = await req(`${API}/api/admin/batch-download?type=img`, {
+  const emptyTicket = await getTicket(token);
+  const emptyRes = await req(`${API}/api/admin/batch-download?type=img&ticket=${emptyTicket}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (emptyRes.status !== 404) fail(`期望 404，实际 ${emptyRes.status}`);
   log(`  ✅ 无素材返回 404: ${emptyRes.json.error}`);
 
-  // 7. 清理视频
+  // 7. 清理视频素材
   for (const pid of POINT_IDS.slice(0, 2)) {
-    await deleteMaterial(token, pid, 'video');
+    await deleteMaterial(token, videoIds[pid]);
   }
 
   // 清理 zip 测试文件
@@ -193,7 +226,7 @@ async function main() {
   log('\n========== ✅ 批量下载测试全部通过 ==========');
 }
 
-main().catch(err => {
+main().catch((err) => {
   console.error('未捕获错误:', err);
   process.exit(1);
 });

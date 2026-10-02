@@ -132,7 +132,17 @@ if (!checkIntegrity(db)) {
 }
 
 /**
+ * 素材类型：图片 / 视频（不限制每点位的素材数量）
+ */
+export type MaterialType = 'img' | 'video';
+
+/**
  * 初始化表结构与固定点位数据
+ *
+ * 素材表（material）自 v2 起支持每点位不限数量的图片/视频：
+ *   - 每行一条素材记录，material_type 区分 img / video
+ *   - 旧的 point_material 表（每点位一行、img_path/img_path_alt/video_path/video_path_alt 四列）
+ *     会在启动时自动迁移到新表，旧表重命名为 point_material_legacy_v1 保留
  */
 export function initDatabase() {
   // 点位基础表
@@ -152,21 +162,22 @@ export function initDatabase() {
     )
   `);
 
-  // 点位素材记录表
+  // 点位素材记录表（v2：每行一条素材，不限每点位数量）
   db.exec(`
-    CREATE TABLE IF NOT EXISTS point_material (
+    CREATE TABLE IF NOT EXISTS material (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      point_id INTEGER NOT NULL UNIQUE,
-      img_path TEXT,
-      video_path TEXT,
+      point_id INTEGER NOT NULL,
+      material_type TEXT NOT NULL CHECK (material_type IN ('img', 'video')),
+      file_path TEXT NOT NULL UNIQUE,
+      file_size INTEGER NOT NULL DEFAULT 0,
       upload_time DATETIME,
       FOREIGN KEY (point_id) REFERENCES point_info(id)
     )
   `);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_material_point ON material(point_id)`);
 
-  // 迁移：为旧库增加备选素材字段（img_path_alt / video_path_alt）
-  migrateAddColumn('point_material', 'img_path_alt', 'TEXT');
-  migrateAddColumn('point_material', 'video_path_alt', 'TEXT');
+  // 旧结构迁移：point_material（四列固定槽位）→ material（多行）
+  migrateLegacyMaterials();
 
   // 导入141条固定点位数据（如不存在）
   const insertPoint = db.prepare(
@@ -174,8 +185,6 @@ export function initDatabase() {
        (id, name, city, district, township, location, station, capacity, lon, lat, remark)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
-  const insertMaterial = db.prepare('INSERT OR IGNORE INTO point_material (point_id) VALUES (?)');
-
   const importAll = db.transaction(() => {
     for (const p of POINTS_DATA) {
       insertPoint.run(
@@ -191,21 +200,83 @@ export function initDatabase() {
         p.lat,
         p.remark,
       );
-      insertMaterial.run(p.id);
     }
   });
   importAll();
 }
 
 /**
- * 安全添加列（若已存在则跳过）
+ * 旧素材表结构迁移（v1 四列固定槽位 → v2 多行不限量）
+ *
+ * 触发条件：point_material 表存在且含 img_path 列（v1 结构）。
+ * 策略：
+ *   1. 读取旧表全部行，将 img_path / img_path_alt 转为 img 类型素材，
+ *      video_path / video_path_alt 转为 video 类型素材，逐行 INSERT 到 material 表
+ *   2. 文件已在磁盘上的（旧版上传路径保留），补查真实文件大小；缺失文件 size 记 0
+ *   3. 旧表重命名为 point_material_legacy_v1 保留（便于人工核对），不删除
+ *
+ * 幂等：迁移完成后 point_material 已不存在，重复启动不会再次执行
  */
-function migrateAddColumn(table: string, column: string, type: string) {
-  const cols = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
-  if (!cols.some((c) => c.name === column)) {
-    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
-    console.log(`[db] 迁移: ${table}.${column} 已添加`);
+function migrateLegacyMaterials(): void {
+  // 旧表不存在 → 无需迁移（全新库或已迁移过）
+  const legacyExists = db
+    .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='point_material'`)
+    .get();
+  if (!legacyExists) return;
+
+  // 已是 v2 结构（无 img_path 列）→ 说明历史遗留的空表，直接跳过
+  const cols = db.prepare(`PRAGMA table_info(point_material)`).all() as Array<{ name: string }>;
+  if (!cols.some((c) => c.name === 'img_path')) return;
+
+  console.log('[db] 检测到旧版素材表结构，开始迁移到 material 多行结构...');
+
+  interface LegacyRow {
+    point_id: number;
+    img_path: string | null;
+    img_path_alt: string | null;
+    video_path: string | null;
+    video_path_alt: string | null;
+    upload_time: string | null;
   }
+
+  const legacyRows = db
+    .prepare(
+      `SELECT point_id, img_path, img_path_alt, video_path, video_path_alt, upload_time
+       FROM point_material`,
+    )
+    .all() as LegacyRow[];
+
+  const insert = db.prepare(
+    `INSERT OR IGNORE INTO material (point_id, material_type, file_path, file_size, upload_time)
+     VALUES (?, ?, ?, ?, ?)`,
+  );
+
+  const migrate = db.transaction(() => {
+    for (const row of legacyRows) {
+      const entries: Array<{ type: MaterialType; path: string | null }> = [
+        { type: 'img', path: row.img_path },
+        { type: 'img', path: row.img_path_alt },
+        { type: 'video', path: row.video_path },
+        { type: 'video', path: row.video_path_alt },
+      ];
+      for (const entry of entries) {
+        if (!entry.path) continue;
+        let size = 0;
+        try {
+          size = fs.statSync(path.join(STORAGE_DIR, entry.path)).size;
+        } catch {
+          // 文件已丢失：仍保留记录，由批量下载/定时清理的缺失文件容错处理
+        }
+        insert.run(row.point_id, entry.type, entry.path, size, row.upload_time);
+      }
+    }
+  });
+  migrate();
+
+  db.exec(`ALTER TABLE point_material RENAME TO point_material_legacy_v1`);
+  console.log(
+    `[db] 旧素材表迁移完成（${legacyRows.length} 个点位），旧表已重命名为 point_material_legacy_v1`,
+  );
 }
 
 export { db, DATA_DIR, STORAGE_DIR, TEMP_CHUNK_DIR, DB_PATH };

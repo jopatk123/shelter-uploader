@@ -29,20 +29,10 @@ const FILTERS: { value: FilterType; label: string }[] = [
   { value: 'completed', label: '已完成' },
 ];
 
-/** MaterialType → has_xxx 字段名（用于按类型统计已上传数量） */
-const HAS_KEY: Record<MaterialType, keyof PointStatus> = {
-  img: 'has_image',
-  img_alt: 'has_image_alt',
-  video: 'has_video',
-  video_alt: 'has_video_alt',
-};
-
 /** MaterialType → 中文标签 */
 const TYPE_LABEL: Record<MaterialType, string> = {
-  img: '主图片',
-  img_alt: '备选图片',
-  video: '主视频',
-  video_alt: '备选视频',
+  img: '图片',
+  video: '视频',
 };
 
 export default function AdminPage() {
@@ -124,9 +114,10 @@ export default function AdminPage() {
   // 前端筛选逻辑（与后端保持一致）
   const filteredPoints = useMemo(() => {
     if (filter === 'all') return points;
-    if (filter === 'img_only') return points.filter((p) => p.has_image && !p.has_video);
-    if (filter === 'video_only') return points.filter((p) => !p.has_image && p.has_video);
-    if (filter === 'completed') return points.filter((p) => p.has_image || p.has_video);
+    if (filter === 'img_only') return points.filter((p) => p.img_count > 0 && p.video_count === 0);
+    if (filter === 'video_only')
+      return points.filter((p) => p.img_count === 0 && p.video_count > 0);
+    if (filter === 'completed') return points.filter((p) => p.uploaded_count > 0);
     return points;
   }, [points, filter]);
 
@@ -134,9 +125,9 @@ export default function AdminPage() {
   const filterCounts = useMemo(
     () => ({
       all: points.length,
-      img_only: points.filter((p) => p.has_image && !p.has_video).length,
-      video_only: points.filter((p) => !p.has_image && p.has_video).length,
-      completed: points.filter((p) => p.has_image || p.has_video).length,
+      img_only: points.filter((p) => p.img_count > 0 && p.video_count === 0).length,
+      video_only: points.filter((p) => p.img_count === 0 && p.video_count > 0).length,
+      completed: points.filter((p) => p.uploaded_count > 0).length,
     }),
     [points],
   );
@@ -145,48 +136,49 @@ export default function AdminPage() {
   const stats = useMemo(
     () => ({
       total: points.length,
-      hasImage: points.filter((p) => p.has_image).length,
-      hasImageAlt: points.filter((p) => p.has_image_alt).length,
-      hasVideo: points.filter((p) => p.has_video).length,
-      hasVideoAlt: points.filter((p) => p.has_video_alt).length,
-      completed: points.filter((p) => p.has_image || p.has_video).length,
-      partial: points.filter((p) => getPointState(p.has_image, p.has_video) === 'partial').length,
+      imgTotal: points.reduce((sum, p) => sum + p.img_count, 0),
+      videoTotal: points.reduce((sum, p) => sum + p.video_count, 0),
+      materialTotal: points.reduce((sum, p) => sum + p.uploaded_count, 0),
+      completed: points.filter((p) => p.uploaded_count > 0).length,
+      partial: points.filter((p) => getPointState(p.img_count, p.video_count) === 'partial').length,
+      empty: points.filter((p) => p.uploaded_count === 0).length,
     }),
     [points],
   );
 
   const handleClearAll = async (id: number) => {
     setError(null);
-    const point = points.find((p) => p.id === id);
-    if (!point) return;
-    const types: MaterialType[] = ['img', 'img_alt', 'video', 'video_alt'];
-    const errors: string[] = [];
-    for (const t of types) {
-      const hasKey = HAS_KEY[t];
-      if (point[hasKey]) {
+    try {
+      // 拉取点位详情，按素材行 id 逐个删除（每点位素材数量不限）
+      const detail = await adminFetchPointDetail(id);
+      const errors: string[] = [];
+      for (const m of detail.materials) {
         try {
-          await adminDeleteMaterial(id, t);
+          await adminDeleteMaterial(m.id);
         } catch (err) {
-          errors.push(err instanceof Error ? err.message : `${t} 删除失败`);
+          errors.push(err instanceof Error ? err.message : `素材 #${m.id} 删除失败`);
         }
       }
-    }
-    // 无论部分成功或失败，都刷新列表以反映最新状态
-    await loadPoints();
-    if (errors.length > 0) {
-      setError(`部分素材删除失败: ${errors.join('; ')}`);
+      // 无论部分成功或失败，都刷新列表以反映最新状态
+      await loadPoints();
+      if (errors.length > 0) {
+        setError(`部分素材删除失败: ${errors.join('; ')}`);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '获取详情失败');
     }
   };
 
   const handleBatchDownload = async (type: MaterialType, ids?: number[]) => {
     const label = TYPE_LABEL[type];
-    const hasKey = HAS_KEY[type];
+    const countKey = type === 'img' ? 'img_count' : 'video_count';
     const targetIds = ids ?? filteredPoints.map((p) => p.id);
     const pool = points.filter((p) => targetIds.includes(p.id));
-    const count = pool.filter((p) => p[hasKey]).length;
+    const pointCount = pool.filter((p) => p[countKey] > 0).length;
+    const fileCount = pool.reduce((sum, p) => sum + p[countKey], 0);
     const scopeLabel = ids && ids.length > 0 ? '选中点位' : '当前筛选';
 
-    if (count === 0) {
+    if (fileCount === 0) {
       setBatchMsg(`${scopeLabel}中暂无已上传的${label}素材`);
       setTimeout(() => setBatchMsg(null), 3000);
       return;
@@ -197,7 +189,9 @@ export default function AdminPage() {
     setError(null);
     try {
       await adminBatchDownload(type, targetIds);
-      setBatchMsg(`${scopeLabel} ${label}共 ${count} 个文件，下载已开始`);
+      setBatchMsg(
+        `${scopeLabel} ${label}共 ${fileCount} 个文件（${pointCount} 个点位），下载已开始`,
+      );
       setTimeout(() => setBatchMsg(null), 5000);
     } catch (err) {
       const msg = err instanceof Error ? err.message : `${label}批量下载失败`;
@@ -304,12 +298,12 @@ export default function AdminPage() {
         {/* 统计概览 */}
         <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-3 mb-6">
           <StatCard label="总点位数" value={stats.total} color="text-base-100" />
-          <StatCard label="主图片" value={stats.hasImage} color="text-accent" />
-          <StatCard label="备选图片" value={stats.hasImageAlt} color="text-status-yellow" />
-          <StatCard label="主视频" value={stats.hasVideo} color="text-accent" />
-          <StatCard label="备选视频" value={stats.hasVideoAlt} color="text-status-yellow" />
-          <StatCard label="部分完成" value={stats.partial} color="text-status-yellow" />
+          <StatCard label="图片素材" value={stats.imgTotal} color="text-accent" />
+          <StatCard label="视频素材" value={stats.videoTotal} color="text-accent" />
+          <StatCard label="素材总数" value={stats.materialTotal} color="text-base-100" />
           <StatCard label="已完成" value={stats.completed} color="text-status-green" />
+          <StatCard label="部分完成" value={stats.partial} color="text-status-yellow" />
+          <StatCard label="未开始" value={stats.empty} color="text-status-red" />
         </div>
 
         {/* 批量下载工具栏（含点位选择操作） */}
@@ -387,14 +381,8 @@ export default function AdminPage() {
                 <th className="text-left px-4 py-3">区县</th>
                 <th className="text-left px-4 py-3">名称</th>
                 <th className="text-left px-4 py-3">经纬度</th>
-                <th className="text-center px-2 py-3">
-                  主图
-                  <div className="text-[10px] text-base-500 mt-0.5">备图</div>
-                </th>
-                <th className="text-center px-2 py-3">
-                  主视频
-                  <div className="text-[10px] text-base-500 mt-0.5">备视频</div>
-                </th>
+                <th className="text-center px-2 py-3">图片数</th>
+                <th className="text-center px-2 py-3">视频数</th>
                 <th className="text-left px-4 py-3">最后上传</th>
                 <th className="text-center px-4 py-3">操作</th>
               </tr>
@@ -414,7 +402,6 @@ export default function AdminPage() {
                 </tr>
               ) : (
                 filteredPoints.map((p) => {
-                  const hasAny = p.has_image || p.has_image_alt || p.has_video || p.has_video_alt;
                   const isChecked = selectedIds.has(p.id);
                   return (
                     <tr
@@ -438,29 +425,15 @@ export default function AdminPage() {
                       <td className="px-4 py-3 text-base-400 font-mono text-xs">
                         {p.lon.toFixed(4)}, {p.lat.toFixed(4)}
                       </td>
-                      <td className="px-2 py-3 text-center">
-                        <div className="flex flex-col items-center gap-0.5 leading-none">
-                          <span className={p.has_image ? 'text-status-green' : 'text-status-red'}>
-                            {p.has_image ? '✓' : '✗'}
-                          </span>
-                          <span
-                            className={`text-[10px] ${p.has_image_alt ? 'text-status-green' : 'text-status-red'}`}
-                          >
-                            {p.has_image_alt ? '✓' : '✗'}
-                          </span>
-                        </div>
+                      <td className="px-2 py-3 text-center font-mono">
+                        <span className={p.img_count > 0 ? 'text-status-green' : 'text-base-500'}>
+                          {p.img_count}
+                        </span>
                       </td>
-                      <td className="px-2 py-3 text-center">
-                        <div className="flex flex-col items-center gap-0.5 leading-none">
-                          <span className={p.has_video ? 'text-status-green' : 'text-status-red'}>
-                            {p.has_video ? '✓' : '✗'}
-                          </span>
-                          <span
-                            className={`text-[10px] ${p.has_video_alt ? 'text-status-green' : 'text-status-red'}`}
-                          >
-                            {p.has_video_alt ? '✓' : '✗'}
-                          </span>
-                        </div>
+                      <td className="px-2 py-3 text-center font-mono">
+                        <span className={p.video_count > 0 ? 'text-status-green' : 'text-base-500'}>
+                          {p.video_count}
+                        </span>
                       </td>
                       <td className="px-4 py-3 text-base-400 text-xs font-mono">
                         {formatBeijingTime(p.upload_time) || '-'}
@@ -473,7 +446,7 @@ export default function AdminPage() {
                           >
                             查看
                           </button>
-                          {hasAny && (
+                          {p.uploaded_count > 0 && (
                             <button
                               onClick={() => setClearConfirm({ id: p.id })}
                               className="px-2 py-1 text-xs text-status-red hover:bg-status-red/10 rounded transition-colors"
@@ -517,7 +490,7 @@ export default function AdminPage() {
       {clearConfirm && (
         <ConfirmDialog
           title="确认清空素材"
-          message={`确定清空点位 #${clearConfirm.id} 的全部素材（主图/备图/主视频/备视频）吗？此操作不可撤销。`}
+          message={`确定清空点位 #${clearConfirm.id} 的全部素材吗？此操作不可撤销。`}
           confirmText="确认清空"
           onConfirm={() => {
             handleClearAll(clearConfirm.id);

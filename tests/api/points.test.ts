@@ -27,20 +27,22 @@ describe('GET /api/points', () => {
     expect(first).toHaveProperty('station');
     expect(first).toHaveProperty('lon');
     expect(first).toHaveProperty('lat');
-    expect(first).toHaveProperty('has_image');
-    expect(first).toHaveProperty('has_video');
+    expect(first).toHaveProperty('img_count');
+    expect(first).toHaveProperty('video_count');
+    expect(first).toHaveProperty('uploaded_count');
     expect(first).toHaveProperty('upload_time');
     expect(typeof first.id).toBe('number');
-    expect(typeof first.has_image).toBe('boolean');
-    expect(typeof first.has_video).toBe('boolean');
+    expect(typeof first.img_count).toBe('number');
+    expect(typeof first.video_count).toBe('number');
   });
 
-  it('初始状态下所有点位素材状态为 false', async () => {
+  it('初始状态下所有点位素材数量为 0', async () => {
     const res = await request(app).get('/api/points');
     for (const p of res.body.data) {
-      // 已上传的允许为 true，但测试库初始化时应全为 false
-      expect(p.has_image).toBe(false);
-      expect(p.has_video).toBe(false);
+      // 已上传的允许大于 0，但测试库初始化时应全为 0
+      expect(p.img_count).toBe(0);
+      expect(p.video_count).toBe(0);
+      expect(p.uploaded_count).toBe(0);
       expect(p.upload_time).toBeNull();
     }
   });

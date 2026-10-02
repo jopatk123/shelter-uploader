@@ -1,13 +1,14 @@
 /**
  * 图片上传面板
- * 支持 jpg/png/webp，不限大小与像素比例（普通照片即可）
- * 超过 10MB 的图片在前端自动压缩到 10MB 以内，尽量保留 EXIF 元数据。
- * 通过 type 区分主图（img）与备选图（img_alt）。
+ * 支持 jpg/png/webp，不限上传数量、不限尺寸规格（像素比例）
+ * 超过 300KB 的图片在前端自动压缩到 300KB 以内（优先保留分辨率），尽量保留 EXIF 元数据
+ * 支持一次多选，队列串行上传
  */
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import ProgressBar from '@/components/ProgressBar';
 import { uploadFile, generateFileId, type UploadProgress } from '@/lib/upload';
 import { compressImageIfNeeded, shouldCompress } from '@/lib/imageCompress';
+import { formatFileSize } from '@/lib/utils';
 import {
   checkImageReadable,
   hasGpsExif,
@@ -17,157 +18,185 @@ import {
 
 interface Props {
   pointId: number | null;
-  hasExisting: boolean;
   onUploadComplete: () => void;
-  onNeedConfirm: (callback: () => void) => void;
   /**
-   * 上传成功但图片不含 EXIF GPS 经纬度信息时触发
+   * 上传成功但存在图片不含 EXIF GPS 经纬度信息时触发
    * （仅对 JPEG 文件检测；用于提示用户上传相机/手机原图）
    */
   onMissingGps?: () => void;
-  /** 素材类型：主图 img（默认）/ 备选图 img_alt */
-  type?: 'img' | 'img_alt';
+}
+
+/** 上传队列条目 */
+interface QueueItem {
+  /** 本地唯一标识 */
+  key: string;
+  file: File;
+  status: 'pending' | 'uploading' | 'done' | 'error';
+  progress: UploadProgress | null;
+  error?: string;
 }
 
 const ALLOWED_EXTS = ['.jpg', '.jpeg', '.png', '.webp'];
 
-export default function ImageUploadPanel({
-  pointId,
-  hasExisting,
-  onUploadComplete,
-  onNeedConfirm,
-  onMissingGps,
-  type = 'img',
-}: Props) {
-  const isAlt = type === 'img_alt';
-  const inputId = isAlt ? 'image-input-alt' : 'image-input';
+let seqCounter = 0;
+function nextKey(): string {
+  seqCounter += 1;
+  return `img_${Date.now()}_${seqCounter}`;
+}
 
-  const [file, setFile] = useState<File | null>(null);
-  const [uploadProgress, setUploadProgress] = useState<UploadProgress | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
+export default function ImageUploadPanel({ pointId, onUploadComplete, onMissingGps }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const [items, setItems] = useState<QueueItem[]>([]);
+  const [successCount, setSuccessCount] = useState(0);
+  // 队列处理锁：保证同一时刻只有一张图在上传（压缩/上传串行，避免 canvas 内存峰值）
+  const processingRef = useRef(false);
+  // 供上传闭包读取最新 pointId（切换点位时队列已重置，不会串点位）
+  const pointIdRef = useRef(pointId);
+  pointIdRef.current = pointId;
 
   // 切换点位时重置面板状态
   useEffect(() => {
-    setFile(null);
-    setUploadProgress(null);
-    setError(null);
-    setSuccess(false);
+    setItems([]);
+    setSuccessCount(0);
     if (inputRef.current) inputRef.current.value = '';
   }, [pointId]);
 
   const disabled = pointId === null;
 
-  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selected = e.target.files?.[0];
-    if (!selected) return;
+  const patchItem = useCallback((key: string, patch: Partial<QueueItem>) => {
+    setItems((prev) => prev.map((it) => (it.key === key ? { ...it, ...patch } : it)));
+  }, []);
 
-    setError(null);
-    setSuccess(false);
-    setUploadProgress(null);
+  /** 上传队列中的单张图片：压缩 → 分片上传 → 更新状态 */
+  const uploadOne = useCallback(
+    async (item: QueueItem) => {
+      const pid = pointIdRef.current;
+      if (pid === null) return;
 
-    // 校验格式
-    const ext = selected.name.substring(selected.name.lastIndexOf('.')).toLowerCase();
-    if (!ALLOWED_EXTS.includes(ext)) {
-      setError(`不支持的图片格式，仅支持 ${ALLOWED_EXTS.join(', ')}`);
-      return;
-    }
+      patchItem(item.key, { status: 'uploading', error: undefined, progress: null });
 
-    // 校验图片可解码（拒绝损坏/伪造文件）
-    try {
-      await checkImageReadable(selected);
-    } catch {
-      setError('无法读取图片，文件可能已损坏，请更换图片重试');
-      return;
-    }
+      try {
+        // 并行检测 EXIF GPS（不阻塞上传，仅用于上传后提示）
+        const gpsCheckPromise = hasGpsExif(item.file).catch(() => false);
 
-    // 校验纯黑像素占比（防止上传全黑/损坏图）
-    try {
-      const { ok, ratio, sampledPixels } = await checkBlackPixelRatio(selected);
-      if (!ok) {
-        const percent = (ratio * 100).toFixed(2);
-        const limitPercent = (MAX_BLACK_RATIO * 100).toFixed(0);
-        setError(
-          `图片纯黑像素占比 ${percent}% 超过 ${limitPercent}% 限制（采样 ${sampledPixels} 像素），可能为全黑/损坏图，请更换图片重试`,
+        // 超过 300KB 的图片先压缩（优先保留分辨率）
+        if (shouldCompress(item.file)) {
+          patchItem(item.key, {
+            progress: { phase: 'compressing', percent: 0, message: '正在压缩图片（保留EXIF）...' },
+          });
+        }
+        const fileToUpload = await compressImageIfNeeded(item.file);
+
+        const fileId = generateFileId(fileToUpload);
+        await uploadFile(fileToUpload, fileToUpload.name, pid, 'img', fileId, (progress) =>
+          patchItem(item.key, { progress }),
         );
-        return;
-      }
-    } catch {
-      // 黑像素校验失败不阻塞上传（其他校验会兜底）
-      console.warn('纯黑像素校验异常，跳过');
-    }
 
-    setFile(selected);
+        patchItem(item.key, { status: 'done', progress: null });
+        setSuccessCount((c) => c + 1);
+        onUploadComplete();
 
-    // 如果点位已有图片，弹窗确认覆盖
-    if (hasExisting) {
-      onNeedConfirm(() => doUpload(selected));
-    } else {
-      doUpload(selected);
-    }
-  };
-
-  const doUpload = async (originalFile: File) => {
-    if (!pointId) return;
-
-    try {
-      setSuccess(false);
-      setError(null);
-
-      // 在压缩/上传之前并行检测 EXIF GPS（不阻塞流程）
-      // 仅 JPEG 会被检测；PNG/WEBP 检测函数直接返回 false
-      const gpsCheckPromise = hasGpsExif(originalFile).catch(() => false);
-
-      // 超过 10MB 的图片先压缩，尽量保留 EXIF 元数据
-      let fileToUpload = originalFile;
-      if (shouldCompress(originalFile)) {
-        setUploadProgress({
-          phase: 'compressing',
-          percent: 0,
-          message: '正在压缩图片（保留EXIF）...',
+        // 上传成功后，若图片不含 GPS，弹出提示
+        const hasGps = await gpsCheckPromise;
+        if (!hasGps) onMissingGps?.();
+      } catch (err) {
+        patchItem(item.key, {
+          status: 'error',
+          error: err instanceof Error ? err.message : '上传失败',
         });
       }
-      fileToUpload = await compressImageIfNeeded(originalFile);
+    },
+    [patchItem, onUploadComplete, onMissingGps],
+  );
 
-      const fileId = generateFileId(fileToUpload);
+  // 串行消费队列：存在 pending 条目且当前无上传时，启动下一张
+  useEffect(() => {
+    if (processingRef.current) return;
+    const next = items.find((it) => it.status === 'pending');
+    if (!next) return;
 
-      // 分片上传（type 区分主图/备选图）
-      await uploadFile(fileToUpload, fileToUpload.name, pointId, type, fileId, (progress) =>
-        setUploadProgress(progress),
-      );
-
-      setSuccess(true);
-      setFile(null);
-      if (inputRef.current) inputRef.current.value = '';
-      onUploadComplete();
-
-      // 上传成功后，若图片不含 GPS，弹出提示
-      const hasGps = await gpsCheckPromise;
-      if (!hasGps) {
-        onMissingGps?.();
+    processingRef.current = true;
+    void (async () => {
+      try {
+        await uploadOne(next);
+      } finally {
+        processingRef.current = false;
       }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '上传失败');
+    })();
+  }, [items, uploadOne]);
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    if (files.length === 0) return;
+
+    const accepted: QueueItem[] = [];
+    const rejected: QueueItem[] = [];
+
+    for (const file of files) {
+      const ext = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
+      if (!ALLOWED_EXTS.includes(ext)) {
+        rejected.push({
+          key: nextKey(),
+          file,
+          status: 'error',
+          progress: null,
+          error: `不支持的格式，仅支持 ${ALLOWED_EXTS.join(', ')}`,
+        });
+        continue;
+      }
+
+      // 校验图片可解码（拒绝损坏/伪造文件）
+      try {
+        await checkImageReadable(file);
+      } catch {
+        rejected.push({
+          key: nextKey(),
+          file,
+          status: 'error',
+          progress: null,
+          error: '无法读取图片，文件可能已损坏，请更换图片重试',
+        });
+        continue;
+      }
+
+      // 校验纯黑像素占比（防止上传全黑/损坏图）
+      try {
+        const { ok, ratio, sampledPixels } = await checkBlackPixelRatio(file);
+        if (!ok) {
+          const percent = (ratio * 100).toFixed(2);
+          const limitPercent = (MAX_BLACK_RATIO * 100).toFixed(0);
+          rejected.push({
+            key: nextKey(),
+            file,
+            status: 'error',
+            progress: null,
+            error: `纯黑像素占比 ${percent}% 超过 ${limitPercent}% 限制（采样 ${sampledPixels} 像素），可能为全黑/损坏图`,
+          });
+          continue;
+        }
+      } catch {
+        // 黑像素校验失败不阻塞上传（后端仍会做可解析性校验兜底）
+        console.warn('纯黑像素校验异常，跳过', file.name);
+      }
+
+      accepted.push({ key: nextKey(), file, status: 'pending', progress: null });
     }
+
+    setItems((prev) => [...prev, ...rejected, ...accepted]);
+    setSuccessCount(0);
+    if (inputRef.current) inputRef.current.value = '';
   };
 
-  const handleRetry = () => {
-    if (file) {
-      doUpload(file);
-    }
+  const retryItem = (key: string) => {
+    patchItem(key, { status: 'pending', error: undefined, progress: null });
   };
 
-  const isUploading =
-    uploadProgress?.phase === 'compressing' ||
-    uploadProgress?.phase === 'uploading' ||
-    uploadProgress?.phase === 'merging';
+  const removeItem = (key: string) => {
+    setItems((prev) => prev.filter((it) => it.key !== key));
+  };
 
-  const title = isAlt ? '备选图片上传' : '图片上传';
-  const accentColor = isAlt ? 'bg-status-yellow' : 'bg-accent';
-  const borderColor = isAlt ? 'hover:border-status-yellow' : 'hover:border-accent';
-  const hoverBg = isAlt ? 'hover:bg-base-600/30' : 'hover:bg-base-600/30';
-  const successText = isAlt ? '备选图片上传成功' : '图片上传成功';
+  const doneCount = items.filter((it) => it.status === 'done').length;
+  const errorCount = items.filter((it) => it.status === 'error').length;
 
   return (
     <div
@@ -175,81 +204,116 @@ export default function ImageUploadPanel({
     >
       <div className="flex items-center justify-between mb-4">
         <h3 className="font-mono text-sm text-base-100 flex items-center gap-2">
-          <span className={`w-2 h-2 rounded-full ${accentColor}`}></span>
-          {title}
+          <span className="w-2 h-2 rounded-full bg-accent"></span>
+          图片上传
         </h3>
-        {hasExisting && (
-          <span className="text-xs text-status-yellow font-mono">已有图片，将覆盖</span>
+        {doneCount > 0 && (
+          <span className="text-xs text-status-green font-mono">本批已上传 {doneCount} 张</span>
         )}
       </div>
 
       <div className="text-xs text-base-400 mb-3 font-mono">
-        格式: JPG / PNG / WEBP · 纯黑像素 ≤ 10%
+        格式: JPG / PNG / WEBP · 不限数量与规格 · 自动压缩至 300KB 以内 · 纯黑像素 ≤ 10%
       </div>
 
       <input
         ref={inputRef}
         type="file"
         accept=".jpg,.jpeg,.png,.webp"
+        multiple
         onChange={handleFileSelect}
-        disabled={disabled || isUploading}
+        disabled={disabled}
         className="hidden"
-        id={inputId}
+        id="image-input"
       />
 
       <label
-        htmlFor={disabled || isUploading ? '' : inputId}
+        htmlFor={disabled ? '' : 'image-input'}
         className={`
           block border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-all
           ${
-            disabled || isUploading
+            disabled
               ? 'border-base-600 cursor-not-allowed'
-              : `border-base-500 ${borderColor} ${hoverBg}`
+              : 'border-base-500 hover:border-accent hover:bg-base-600/30'
           }
         `}
       >
-        {file ? (
-          <div className="text-base-200">
-            <p className="font-mono text-sm">{file.name}</p>
-            <p className="text-xs text-base-400 mt-1">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
-          </div>
-        ) : (
-          <div className="text-base-300">
-            <p className="text-sm">点击选择{isAlt ? '备选' : ''}图片</p>
-            <p className="text-xs text-base-400 mt-1">JPG / PNG / WEBP · 纯黑 ≤ 10%</p>
-          </div>
-        )}
+        <div className="text-base-300">
+          <p className="text-sm">点击选择图片（可多选）</p>
+          <p className="text-xs text-base-400 mt-1">JPG / PNG / WEBP · 自动压缩至 300KB 以内</p>
+        </div>
       </label>
 
-      {/* 上传进度 */}
-      {uploadProgress && (
-        <div className="mt-4">
-          <ProgressBar
-            percent={uploadProgress.percent}
-            label={uploadProgress.message}
-            variant={uploadProgress.phase === 'compressing' ? 'compress' : 'default'}
-          />
-        </div>
-      )}
-
-      {/* 状态提示 */}
-      {error && (
-        <div className="mt-4 p-3 bg-status-red/10 border border-status-red/30 rounded text-sm text-status-red flex items-center justify-between">
-          <span>{error}</span>
-          {file && (
-            <button
-              onClick={handleRetry}
-              className="ml-3 px-3 py-1 text-xs bg-status-red/20 rounded hover:bg-status-red/30 transition-colors"
+      {/* 上传队列 */}
+      {items.length > 0 && (
+        <div className="mt-4 space-y-2">
+          {items.map((item) => (
+            <div
+              key={item.key}
+              className="p-3 bg-base-800 border border-base-600 rounded text-xs font-mono"
             >
-              重试
-            </button>
-          )}
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-base-200 truncate" title={item.file.name}>
+                  {item.file.name}
+                </span>
+                <span className="flex items-center gap-2 shrink-0">
+                  <span className="text-base-400">{formatFileSize(item.file.size)}</span>
+                  {item.status === 'pending' && <span className="text-base-400">排队中</span>}
+                  {item.status === 'uploading' && (
+                    <span className="text-accent flex items-center gap-1">
+                      <span className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin"></span>
+                      上传中
+                    </span>
+                  )}
+                  {item.status === 'done' && <span className="text-status-green">✓ 完成</span>}
+                  {item.status === 'error' && (
+                    <>
+                      <span className="text-status-red">✗ 失败</span>
+                      <button
+                        onClick={() => retryItem(item.key)}
+                        className="px-2 py-0.5 bg-status-red/20 text-status-red rounded hover:bg-status-red/30 transition-colors"
+                      >
+                        重试
+                      </button>
+                    </>
+                  )}
+                  {(item.status === 'pending' || item.status === 'error') && (
+                    <button
+                      onClick={() => removeItem(item.key)}
+                      className="px-2 py-0.5 text-base-400 hover:text-base-100 transition-colors"
+                      title="移除该条目"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </span>
+              </div>
+              {item.status === 'uploading' && item.progress && (
+                <div className="mt-2">
+                  <ProgressBar
+                    percent={item.progress.percent}
+                    label={item.progress.message}
+                    variant={item.progress.phase === 'compressing' ? 'compress' : 'default'}
+                  />
+                </div>
+              )}
+              {item.status === 'error' && item.error && (
+                <p className="mt-1 text-status-red break-all">{item.error}</p>
+              )}
+            </div>
+          ))}
         </div>
       )}
 
-      {success && (
+      {/* 汇总状态 */}
+      {successCount > 0 && (
         <div className="mt-4 p-3 bg-status-green/10 border border-status-green/30 rounded text-sm text-status-green">
-          {successText}
+          图片上传成功（本批 {successCount} 张）
+        </div>
+      )}
+      {errorCount > 0 && successCount === 0 && items.every((it) => it.status !== 'uploading') && (
+        <div className="mt-4 p-3 bg-status-red/10 border border-status-red/30 rounded text-sm text-status-red">
+          本批图片全部失败（{errorCount} 张），请检查后重试
         </div>
       )}
     </div>

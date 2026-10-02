@@ -5,8 +5,8 @@
 
 const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB 分片
 
-/** 素材类型：主图 / 备选图 / 主视频 / 备选视频 */
-export type UploadType = 'img' | 'img_alt' | 'video' | 'video_alt';
+/** 素材类型：图片 / 视频（v2 起不分主备） */
+export type UploadType = 'img' | 'video';
 
 export interface UploadProgress {
   phase: 'idle' | 'compressing' | 'uploading' | 'merging' | 'done' | 'error';

@@ -1,6 +1,6 @@
 /**
  * 点位状态点阵组件
- * 141个圆点：绿色=主图+主视频全部完成，黄色=仅上传其一（统计算完成），红色=均未上传
+ * 141个圆点：绿色=图片+视频全部完成，黄色=仅上传其一（统计算完成），红色=均未上传
  * 点阵上方增加按区域（区县）分组的统计，一眼看出各区域完成进度
  * 点击区域卡片可高亮闪烁该区域对应的点位
  */
@@ -45,9 +45,9 @@ export default function PointDotGrid({
   const [hoveredId, setHoveredId] = useState<number | null>(null);
   const [highlightedDistrict, setHighlightedDistrict] = useState<string | null>(null);
 
-  const completedCount = points.filter((p) => p.has_image || p.has_video).length;
+  const completedCount = points.filter((p) => p.uploaded_count > 0).length;
   const partialCount = points.filter(
-    (p) => getPointState(p.has_image, p.has_video) === 'partial',
+    (p) => getPointState(p.img_count, p.video_count) === 'partial',
   ).length;
 
   // 按区县分组统计
@@ -60,7 +60,7 @@ export default function PointDotGrid({
         map.set(p.district, stat);
       }
       stat.total++;
-      const state = getPointState(p.has_image, p.has_video);
+      const state = getPointState(p.img_count, p.video_count);
       if (state === 'complete' || state === 'partial') stat.completed++;
       if (state === 'partial') stat.partial++;
     }
@@ -164,7 +164,7 @@ export default function PointDotGrid({
 
       <div className="grid grid-cols-47 gap-1.5" style={{ gridTemplateColumns: 'repeat(47, 1fr)' }}>
         {points.map((p) => {
-          const state = getPointState(p.has_image, p.has_video);
+          const state = getPointState(p.img_count, p.video_count);
           const isSelected = p.id === selectedId;
           const isHovered = p.id === hoveredId;
           const isHighlighted = highlightedDistrict !== null && highlightedDistrict === p.district;
@@ -219,7 +219,7 @@ export default function PointDotGrid({
                   </span>
                   <br />
                   <span className="text-base-300 text-[10px]">
-                    图: {p.has_image ? '✓' : '✗'} 视频: {p.has_video ? '✓' : '✗'}
+                    图: {p.img_count} 视频: {p.video_count}
                   </span>
                 </div>
               )}

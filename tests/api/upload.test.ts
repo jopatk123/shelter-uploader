@@ -102,13 +102,13 @@ describe('上传流程 - 合并接口', () => {
     expect(mergeRes.body.data.path).toContain('point_3');
     expect(mergeRes.body.data.path).toMatch(/\.png$/);
 
-    // 通过管理员接口校验数据
+    // 通过管理员接口校验数据（v2：INSERT 语义，materials 列表含新素材）
     const detailRes = await request(app)
       .get('/api/admin/point/3')
       .set('Authorization', `Bearer ${token}`);
 
-    expect(detailRes.body.data.has_image).toBe(true);
-    expect(detailRes.body.data.img_path).toContain('point_3');
+    expect(detailRes.body.data.img_count).toBeGreaterThanOrEqual(1);
+    expect(detailRes.body.data.materials[0].path).toContain('point_3');
     expect(detailRes.body.data.upload_time).toBeTruthy();
   });
 
@@ -193,9 +193,9 @@ describe('上传流程 - 合并接口', () => {
     expect(res.status).toBe(400);
   });
 
-  it('覆盖上传时旧文件被删除', async () => {
+  it('重复上传同一类型素材时追加记录（数量不限），旧文件与记录均保留', async () => {
     const pointId = '4';
-    const fileId1 = `fid-overwrite-1-${Date.now()}`;
+    const fileId1 = `fid-append-1-${Date.now()}`;
     const buf = makeWidePng(50); // 100×50 合法 PNG
 
     // 第一次上传
@@ -214,8 +214,8 @@ describe('上传流程 - 合并接口', () => {
       .send({ fileId: fileId1, pointId, type: 'img', fileName: 'a.png', totalChunks: '1' });
     const firstPath = merge1.body.data.path;
 
-    // 第二次上传（覆盖）
-    const fileId2 = `fid-overwrite-2-${Date.now()}`;
+    // 第二次上传（v2 起不再覆盖，作为新素材追加）
+    const fileId2 = `fid-append-2-${Date.now()}`;
     await request(app)
       .post('/api/upload/chunk')
       .field('fileId', fileId2)
@@ -230,17 +230,26 @@ describe('上传流程 - 合并接口', () => {
       .post('/api/upload/complete')
       .send({ fileId: fileId2, pointId, type: 'img', fileName: 'b.png', totalChunks: '1' });
 
+    expect(merge2.status).toBe(200);
     expect(merge2.body.success).toBe(true);
+    expect(merge2.body.data.id).not.toBe(merge1.body.data.id);
     expect(merge2.body.data.path).not.toBe(firstPath);
 
-    // 验证旧文件已被删除
+    // v2 语义：旧文件仍存在（不再删除）
     const DATA_DIR = process.env.DATA_DIR!;
     const oldFullPath = path.join(DATA_DIR, 'storage', firstPath);
-    expect(fs.existsSync(oldFullPath)).toBe(false);
+    expect(fs.existsSync(oldFullPath)).toBe(true);
 
     // 新文件存在
     const newFullPath = path.join(DATA_DIR, 'storage', merge2.body.data.path);
     expect(fs.existsSync(newFullPath)).toBe(true);
+
+    // 数据库追加为两条素材记录
+    const detailRes = await request(app)
+      .get(`/api/admin/point/${pointId}`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(detailRes.body.data.img_count).toBe(2);
+    expect(detailRes.body.data.uploaded_count).toBe(2);
   });
 
   it('上传完成后可通过 /admin/download 下载', async () => {
@@ -258,12 +267,13 @@ describe('上传流程 - 合并接口', () => {
       .field('fileName', 'dl.png')
       .attach('chunk', buf, { filename: 'c0', contentType: 'application/octet-stream' });
 
-    await request(app)
+    const mergeRes = await request(app)
       .post('/api/upload/complete')
       .send({ fileId, pointId, type: 'img', fileName: 'dl.png', totalChunks: '1' });
+    const materialId = mergeRes.body.data.id;
 
     const dlRes = await request(app)
-      .get('/api/admin/download/5?type=img')
+      .get(`/api/admin/download/${materialId}`)
       .set('Authorization', `Bearer ${token}`);
 
     expect(dlRes.status).toBe(200);
@@ -286,13 +296,14 @@ describe('上传流程 - 合并接口', () => {
       .field('fileName', 'del.png')
       .attach('chunk', buf, { filename: 'c0', contentType: 'application/octet-stream' });
 
-    await request(app)
+    const mergeRes = await request(app)
       .post('/api/upload/complete')
       .send({ fileId, pointId, type: 'img', fileName: 'del.png', totalChunks: '1' });
+    const materialId = mergeRes.body.data.id;
 
-    // 删除
+    // 删除（v2 起按素材行 id 删除，不再需要 type 参数）
     const delRes = await request(app)
-      .delete(`/api/admin/material/${pointId}?type=img`)
+      .delete(`/api/admin/material/${materialId}`)
       .set('Authorization', `Bearer ${token}`);
 
     expect(delRes.status).toBe(200);
@@ -303,8 +314,8 @@ describe('上传流程 - 合并接口', () => {
       .get(`/api/admin/point/${pointId}`)
       .set('Authorization', `Bearer ${token}`);
 
-    expect(detailRes.body.data.has_image).toBe(false);
-    expect(detailRes.body.data.img_path).toBeNull();
+    expect(detailRes.body.data.img_count).toBe(0);
+    expect(detailRes.body.data.materials).toHaveLength(0);
     // 删除最后一个素材后 upload_time 应被清空
     expect(detailRes.body.data.upload_time).toBeNull();
   });
@@ -336,7 +347,7 @@ describe('上传流程 - 合并接口', () => {
     const detailRes = await request(app)
       .get(`/api/admin/point/${pointId}`)
       .set('Authorization', `Bearer ${token}`);
-    expect(detailRes.body.data.has_image).toBe(true);
+    expect(detailRes.body.data.img_count).toBeGreaterThanOrEqual(1);
   });
 
   it('无法解析的图片文件被拒绝', async () => {
@@ -363,28 +374,42 @@ describe('上传流程 - 合并接口', () => {
     expect(res.body.error).toContain('无法解析');
   });
 
-  it('备选图（img_alt）同样校验图片可解析性', async () => {
+  it('同一点位可上传多张图片（数量不限）', async () => {
     const pointId = '10';
-    const fileId = `fid-alt-img-${Date.now()}`;
-    const buf = makeWidePng(120); // 240×120 合法 PNG
+    const paths: string[] = [];
 
-    await request(app)
-      .post('/api/upload/chunk')
-      .field('fileId', fileId)
-      .field('index', '0')
-      .field('totalChunks', '1')
-      .field('pointId', pointId)
-      .field('type', 'img_alt')
-      .field('fileName', 'alt.png')
-      .attach('chunk', buf, { filename: 'c0', contentType: 'application/octet-stream' });
+    // 连续上传两张图片到同一点位，均应成功且各自成为独立素材
+    for (const [i, size] of [120, 80].entries()) {
+      const fileId = `fid-multi-img-${pointId}-${i}-${Date.now()}`;
+      const buf = makeWidePng(size);
 
-    const res = await request(app)
-      .post('/api/upload/complete')
-      .send({ fileId, pointId, type: 'img_alt', fileName: 'alt.png', totalChunks: '1' });
+      await request(app)
+        .post('/api/upload/chunk')
+        .field('fileId', fileId)
+        .field('index', '0')
+        .field('totalChunks', '1')
+        .field('pointId', pointId)
+        .field('type', 'img')
+        .field('fileName', `multi-${i}.png`)
+        .attach('chunk', buf, { filename: 'c0', contentType: 'application/octet-stream' });
 
-    expect(res.status).toBe(200);
-    expect(res.body.success).toBe(true);
-    expect(res.body.data.type).toBe('img_alt');
+      const res = await request(app)
+        .post('/api/upload/complete')
+        .send({ fileId, pointId, type: 'img', fileName: `multi-${i}.png`, totalChunks: '1' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.type).toBe('img');
+      paths.push(res.body.data.path);
+    }
+
+    // 两次上传路径不同（不覆盖）
+    expect(paths[0]).not.toBe(paths[1]);
+
+    const detailRes = await request(app)
+      .get(`/api/admin/point/${pointId}`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(detailRes.body.data.img_count).toBe(2);
   });
 });
 
@@ -461,7 +486,7 @@ describe('上传流程 - 多分片视频合并', () => {
     const detailRes = await request(app)
       .get(`/api/admin/point/${pointId}`)
       .set('Authorization', `Bearer ${token}`);
-    expect(detailRes.body.data.has_video).toBe(false);
+    expect(detailRes.body.data.video_count).toBe(0);
   });
 
   it('无法解析的视频文件被拒绝', async () => {
@@ -488,27 +513,40 @@ describe('上传流程 - 多分片视频合并', () => {
     expect(res.body.error).toContain('无法解析');
   });
 
-  it('备选视频（video_alt）同样校验时长', async () => {
+  it('同一点位可上传多个视频（数量不限）', async () => {
     const pointId = '13';
-    const fileId = `fid-alt-video-${Date.now()}`;
-    const buf = makeValidMp4(20); // 20 秒合法视频
+    const paths: string[] = [];
 
-    await request(app)
-      .post('/api/upload/chunk')
-      .field('fileId', fileId)
-      .field('index', '0')
-      .field('totalChunks', '1')
-      .field('pointId', pointId)
-      .field('type', 'video_alt')
-      .field('fileName', 'alt.mp4')
-      .attach('chunk', buf, { filename: 'c0', contentType: 'application/octet-stream' });
+    // 连续上传两个合法视频到同一点位，均应成功且各自成为独立素材
+    for (const [i, duration] of [20, 30].entries()) {
+      const fileId = `fid-multi-video-${pointId}-${i}-${Date.now()}`;
+      const buf = makeValidMp4(duration);
 
-    const res = await request(app)
-      .post('/api/upload/complete')
-      .send({ fileId, pointId, type: 'video_alt', fileName: 'alt.mp4', totalChunks: '1' });
+      await request(app)
+        .post('/api/upload/chunk')
+        .field('fileId', fileId)
+        .field('index', '0')
+        .field('totalChunks', '1')
+        .field('pointId', pointId)
+        .field('type', 'video')
+        .field('fileName', `multi-${i}.mp4`)
+        .attach('chunk', buf, { filename: 'c0', contentType: 'application/octet-stream' });
 
-    expect(res.status).toBe(200);
-    expect(res.body.success).toBe(true);
-    expect(res.body.data.type).toBe('video_alt');
+      const res = await request(app)
+        .post('/api/upload/complete')
+        .send({ fileId, pointId, type: 'video', fileName: `multi-${i}.mp4`, totalChunks: '1' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.type).toBe('video');
+      paths.push(res.body.data.path);
+    }
+
+    expect(paths[0]).not.toBe(paths[1]);
+
+    const detailRes = await request(app)
+      .get(`/api/admin/point/${pointId}`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(detailRes.body.data.video_count).toBe(2);
   });
 });

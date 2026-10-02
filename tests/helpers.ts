@@ -133,6 +133,22 @@ export function makeShortMp4(durationSeconds = 5): Buffer {
 }
 
 /**
+ * 生成带填充数据的合法 MP4 buffer（用于测试单文件大小上限）
+ * 在 moov box 之后追加一个 free box，不影响时长解析
+ *
+ * @param paddingBytes   追加填充字节数
+ * @param durationSeconds 视频时长（秒）
+ */
+export function makeValidMp4WithPadding(paddingBytes: number, durationSeconds = 15): Buffer {
+  const base = makeMp4Buffer(durationSeconds);
+  if (paddingBytes <= 0) return base;
+  const sizeBuf = Buffer.alloc(4);
+  sizeBuf.writeUInt32BE(8 + paddingBytes, 0);
+  const padding = Buffer.alloc(paddingBytes, 0x00);
+  return Buffer.concat([base, sizeBuf, Buffer.from('free', 'ascii'), padding]);
+}
+
+/**
  * 构造 MP4 box: size(4) + type(4) + data
  */
 function makeMp4Box(type: string, data: Buffer): Buffer {

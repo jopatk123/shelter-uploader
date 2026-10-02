@@ -10,18 +10,14 @@
 import type { MaterialType, PointStatus } from '@/types';
 
 const BATCH_TYPES: { type: MaterialType; label: string; shortLabel: string }[] = [
-  { type: 'img', label: '主图片', shortLabel: '图片' },
-  { type: 'img_alt', label: '备选图片', shortLabel: '备图' },
-  { type: 'video', label: '主视频', shortLabel: '视频' },
-  { type: 'video_alt', label: '备选视频', shortLabel: '备视频' },
+  { type: 'img', label: '图片', shortLabel: '图片' },
+  { type: 'video', label: '视频', shortLabel: '视频' },
 ];
 
-/** MaterialType → PointStatus 上的 has_xxx 字段名 */
-const HAS_KEY: Record<MaterialType, keyof PointStatus> = {
-  img: 'has_image',
-  img_alt: 'has_image_alt',
-  video: 'has_video',
-  video_alt: 'has_video_alt',
+/** MaterialType → PointStatus 上的计数字段名 */
+const COUNT_KEY: Record<MaterialType, 'img_count' | 'video_count'> = {
+  img: 'img_count',
+  video: 'video_count',
 };
 
 interface Props {
@@ -54,12 +50,12 @@ export default function BatchDownloadToolbar({
   const hasSelection = selectedIds.size > 0;
   const selectedIdsArr = Array.from(selectedIds);
 
-  // 在"选中"模式下，仅统计选中点位中已上传对应类型素材的数量
-  // 在"全部"模式下，统计全部已上传该类型素材的数量
+  // 在"选中"模式下，仅统计选中点位中已上传对应类型素材的文件数
+  // 在"全部"模式下，统计全部已上传该类型素材的文件数
   const countFor = (type: MaterialType): number => {
-    const key = HAS_KEY[type];
+    const key = COUNT_KEY[type];
     const pool = hasSelection ? points.filter((p) => selectedIds.has(p.id)) : points;
-    return pool.filter((p) => p[key]).length;
+    return pool.reduce((sum, p) => sum + p[key], 0);
   };
 
   return (
@@ -100,10 +96,7 @@ export default function BatchDownloadToolbar({
         {BATCH_TYPES.map((bt) => {
           const count = countFor(bt.type);
           const isDownloading = downloading === bt.type;
-          const isAlt = bt.type.endsWith('_alt');
-          const colorClass = isAlt
-            ? 'bg-status-yellow/20 border-status-yellow/40 text-status-yellow hover:bg-status-yellow/30'
-            : 'bg-accent/20 border-accent/40 text-accent hover:bg-accent/30';
+          const colorClass = 'bg-accent/20 border-accent/40 text-accent hover:bg-accent/30';
           const labelPrefix = hasSelection ? '下载选中' : '下载全部';
           return (
             <button
@@ -111,7 +104,9 @@ export default function BatchDownloadToolbar({
               onClick={() => onDownload(bt.type, hasSelection ? selectedIdsArr : undefined)}
               disabled={downloading !== null || count === 0}
               title={
-                hasSelection ? `仅下载选中点位中已上传的${bt.label}` : `下载全部已上传的${bt.label}`
+                hasSelection
+                  ? `仅下载选中点位中已上传的${bt.label}（按点位分文件夹打包）`
+                  : `下载全部已上传的${bt.label}（按点位分文件夹打包）`
               }
               className={`px-3 py-1.5 text-xs font-mono rounded border transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5 ${colorClass}`}
             >
@@ -148,7 +143,7 @@ export default function BatchDownloadToolbar({
             : `${hasSelection ? '导出选中' : '导出全部'}统计表格 (${hasSelection ? selectedIds.size : points.length})`}
         </button>
         <span className="text-xs text-base-500 font-mono">
-          CSV 含区域、经纬度、各素材上传状态、完成度等
+          CSV 含区域、经纬度、各素材上传数量、完成度等
         </span>
         {statsMsg && (
           <span className="text-xs text-status-green font-mono ml-auto">{statsMsg}</span>

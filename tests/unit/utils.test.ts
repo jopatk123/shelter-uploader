@@ -2,7 +2,7 @@
  * 前端工具函数单元测试
  */
 import { describe, it, expect } from 'vitest';
-import { cn, getPointState, formatBeijingTime } from '@/lib/utils';
+import { cn, getPointState, formatBeijingTime, formatFileSize } from '@/lib/utils';
 
 describe('cn 工具函数', () => {
   it('合并多个 className', () => {
@@ -27,20 +27,42 @@ describe('cn 工具函数', () => {
 });
 
 describe('getPointState 点位状态判定', () => {
-  it('主图 + 主视频 均上传 → complete', () => {
-    expect(getPointState(true, true)).toBe('complete');
+  it('图片 + 视频 均上传 → complete', () => {
+    expect(getPointState(1, 1)).toBe('complete');
+    expect(getPointState(3, 2)).toBe('complete');
   });
 
-  it('仅上传主图 → partial', () => {
-    expect(getPointState(true, false)).toBe('partial');
+  it('仅上传图片 → partial', () => {
+    expect(getPointState(1, 0)).toBe('partial');
   });
 
-  it('仅上传主视频 → partial', () => {
-    expect(getPointState(false, true)).toBe('partial');
+  it('仅上传视频 → partial', () => {
+    expect(getPointState(0, 1)).toBe('partial');
   });
 
   it('均未上传 → empty', () => {
-    expect(getPointState(false, false)).toBe('empty');
+    expect(getPointState(0, 0)).toBe('empty');
+  });
+});
+
+describe('formatFileSize 文件大小格式化', () => {
+  it('0 与非法值返回 0 B', () => {
+    expect(formatFileSize(0)).toBe('0 B');
+    expect(formatFileSize(-1)).toBe('0 B');
+    expect(formatFileSize(NaN)).toBe('0 B');
+  });
+
+  it('小于 1KB 以 B 为单位', () => {
+    expect(formatFileSize(512)).toBe('512 B');
+  });
+
+  it('KB 区间取整', () => {
+    expect(formatFileSize(2 * 1024)).toBe('2 KB');
+    expect(formatFileSize(300 * 1024)).toBe('300 KB');
+  });
+
+  it('MB 区间保留两位小数', () => {
+    expect(formatFileSize(1.5 * 1024 * 1024)).toBe('1.50 MB');
   });
 });
 

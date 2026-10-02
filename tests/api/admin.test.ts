@@ -97,8 +97,10 @@ describe('管理员点位列表筛选', () => {
 
     expect(res.body.success).toBe(true);
     expect(Array.isArray(res.body.data)).toBe(true);
-    // 初始状态下应都未完成
-    expect(res.body.data.length).toBe(0);
+    // v2 语义：返回的点位必须至少上传过一种素材（与共享库中其他测试文件的上传无关）
+    for (const p of res.body.data) {
+      expect(p.img_count + p.video_count).toBeGreaterThan(0);
+    }
   });
 
   it('filter=img_only 返回仅有图片的点位', async () => {
@@ -108,8 +110,20 @@ describe('管理员点位列表筛选', () => {
 
     expect(res.body.success).toBe(true);
     for (const p of res.body.data) {
-      expect(p.has_image).toBe(true);
-      expect(p.has_video).toBe(false);
+      expect(p.img_count).toBeGreaterThan(0);
+      expect(p.video_count).toBe(0);
+    }
+  });
+
+  it('filter=video_only 返回仅有视频的点位', async () => {
+    const res = await request(app)
+      .get('/api/admin/points?filter=video_only')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.body.success).toBe(true);
+    for (const p of res.body.data) {
+      expect(p.video_count).toBeGreaterThan(0);
+      expect(p.img_count).toBe(0);
     }
   });
 
@@ -133,10 +147,11 @@ describe('管理员点位详情接口', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.data.id).toBe(1);
-    expect(res.body.data).toHaveProperty('img_path');
-    expect(res.body.data).toHaveProperty('video_path');
-    expect(res.body.data).toHaveProperty('has_image');
-    expect(res.body.data).toHaveProperty('has_video');
+    // v2：聚合计数 + 素材明细列表
+    expect(res.body.data).toHaveProperty('img_count');
+    expect(res.body.data).toHaveProperty('video_count');
+    expect(res.body.data).toHaveProperty('uploaded_count');
+    expect(Array.isArray(res.body.data.materials)).toBe(true);
   });
 
   it('无效 ID（非数字）返回 400', async () => {
@@ -163,37 +178,21 @@ describe('管理员删除素材接口', () => {
     token = res.body.data.token;
   });
 
-  it('无效 type 参数返回 400', async () => {
+  it('无效 ID（非数字）返回 400', async () => {
     const res = await request(app)
-      .delete('/api/admin/material/1?type=invalid')
+      .delete('/api/admin/material/abc')
       .set('Authorization', `Bearer ${token}`);
 
     expect(res.status).toBe(400);
   });
 
-  it('缺少 type 参数返回 400', async () => {
+  it('删除不存在的素材返回 404', async () => {
     const res = await request(app)
-      .delete('/api/admin/material/1')
+      .delete('/api/admin/material/999999')
       .set('Authorization', `Bearer ${token}`);
 
-    expect(res.status).toBe(400);
-  });
-
-  it('无素材时删除返回成功', async () => {
-    const res = await request(app)
-      .delete('/api/admin/material/1?type=img')
-      .set('Authorization', `Bearer ${token}`);
-
-    expect(res.status).toBe(200);
-    expect(res.body.success).toBe(true);
-  });
-
-  it('无效 ID 返回 400', async () => {
-    const res = await request(app)
-      .delete('/api/admin/material/abc?type=img')
-      .set('Authorization', `Bearer ${token}`);
-
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(404);
+    expect(res.body.success).toBe(false);
   });
 });
 
@@ -203,18 +202,18 @@ describe('管理员下载接口', () => {
     token = res.body.data.token;
   });
 
-  it('下载未上传的素材返回 404', async () => {
+  it('下载不存在的素材返回 404', async () => {
     const res = await request(app)
-      .get('/api/admin/download/1?type=img')
+      .get('/api/admin/download/999999')
       .set('Authorization', `Bearer ${token}`);
 
     expect(res.status).toBe(404);
     expect(res.body.success).toBe(false);
   });
 
-  it('无效 type 返回 400', async () => {
+  it('无效 ID（非数字）返回 400', async () => {
     const res = await request(app)
-      .get('/api/admin/download/1?type=bad')
+      .get('/api/admin/download/abc')
       .set('Authorization', `Bearer ${token}`);
 
     expect(res.status).toBe(400);
@@ -358,10 +357,8 @@ describe('管理员统计表格下载接口', () => {
     expect(headerLine).toContain('船管站');
     expect(headerLine).toContain('经度');
     expect(headerLine).toContain('纬度');
-    expect(headerLine).toContain('主图片');
-    expect(headerLine).toContain('备选图片');
-    expect(headerLine).toContain('主视频');
-    expect(headerLine).toContain('备选视频');
+    expect(headerLine).toContain('图片数');
+    expect(headerLine).toContain('视频数');
     expect(headerLine).toContain('已上传素材数');
     expect(headerLine).toContain('完成状态');
     expect(headerLine).toContain('最后上传时间');

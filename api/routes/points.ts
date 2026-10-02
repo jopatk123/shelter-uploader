@@ -8,7 +8,7 @@ import { formatBeijingTime, beijingTimestamp } from '../utils/time.js';
 const router = Router();
 
 /**
- * CSV 表格列定义（与 admin/stats-csv 保持一致）
+ * CSV 表格列定义
  */
 const STATS_CSV_COLUMNS: Array<{ key: string; header: string }> = [
   { key: 'id', header: '序号' },
@@ -18,10 +18,8 @@ const STATS_CSV_COLUMNS: Array<{ key: string; header: string }> = [
   { key: 'station', header: '船管站' },
   { key: 'lon', header: '经度' },
   { key: 'lat', header: '纬度' },
-  { key: 'has_image', header: '主图片' },
-  { key: 'has_image_alt', header: '备选图片' },
-  { key: 'has_video', header: '主视频' },
-  { key: 'has_video_alt', header: '备选视频' },
+  { key: 'img_count', header: '图片数' },
+  { key: 'video_count', header: '视频数' },
   { key: 'uploaded_count', header: '已上传素材数' },
   { key: 'status', header: '完成状态' },
   { key: 'upload_time', header: '最后上传时间' },
@@ -36,9 +34,35 @@ function escapeCsvCell(value: unknown): string {
   return str;
 }
 
-function describePointStatus(hasImage: boolean, hasVideo: boolean): string {
-  if (hasImage || hasVideo) return '已完成';
+function describePointStatus(imgCount: number, videoCount: number): string {
+  if (imgCount > 0 || videoCount > 0) return '已完成';
   return '未上传';
+}
+
+/** 点位素材聚合查询 SQL（与 /api/points、CSV 导出共用） */
+const POINTS_AGG_QUERY = `
+  SELECT
+    p.id, p.name, p.district, p.township, p.station, p.lon, p.lat,
+    COALESCE(SUM(CASE WHEN m.material_type = 'img' THEN 1 ELSE 0 END), 0) AS img_count,
+    COALESCE(SUM(CASE WHEN m.material_type = 'video' THEN 1 ELSE 0 END), 0) AS video_count,
+    MAX(m.upload_time) AS upload_time
+  FROM point_info p
+  LEFT JOIN material m ON p.id = m.point_id
+  GROUP BY p.id
+  ORDER BY p.id
+`;
+
+interface PointAggRow {
+  id: number;
+  name: string;
+  district: string;
+  township: string;
+  station: string;
+  lon: number;
+  lat: number;
+  img_count: number;
+  video_count: number;
+  upload_time: string | null;
 }
 
 /**
@@ -47,55 +71,22 @@ function describePointStatus(hasImage: boolean, hasVideo: boolean): string {
  * 用于上传页面的公开访问场景，与 admin/stats-csv 返回相同格式
  */
 router.get('/stats-csv', (_req, res) => {
-  const rows = db
-    .prepare(
-      `
-    SELECT
-      p.id, p.name, p.district, p.township, p.station, p.lon, p.lat,
-      m.img_path, m.img_path_alt, m.video_path, m.video_path_alt, m.upload_time
-    FROM point_info p
-    LEFT JOIN point_material m ON p.id = m.point_id
-    ORDER BY p.id
-  `,
-    )
-    .all() as Array<{
-    id: number;
-    name: string;
-    district: string;
-    township: string;
-    station: string;
-    lon: number;
-    lat: number;
-    img_path: string | null;
-    img_path_alt: string | null;
-    video_path: string | null;
-    video_path_alt: string | null;
-    upload_time: string | null;
-  }>;
+  const rows = db.prepare(POINTS_AGG_QUERY).all() as PointAggRow[];
 
-  const dataRows = rows.map((r) => {
-    const hasImage = !!r.img_path;
-    const hasImageAlt = !!r.img_path_alt;
-    const hasVideo = !!r.video_path;
-    const hasVideoAlt = !!r.video_path_alt;
-    const uploadedCount = [hasImage, hasImageAlt, hasVideo, hasVideoAlt].filter(Boolean).length;
-    return {
-      id: r.id,
-      name: r.name,
-      district: r.district,
-      township: r.township,
-      station: r.station,
-      lon: r.lon,
-      lat: r.lat,
-      has_image: hasImage,
-      has_image_alt: hasImageAlt,
-      has_video: hasVideo,
-      has_video_alt: hasVideoAlt,
-      uploaded_count: uploadedCount,
-      status: describePointStatus(hasImage, hasVideo),
-      upload_time: formatBeijingTime(r.upload_time),
-    };
-  });
+  const dataRows = rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    district: r.district,
+    township: r.township,
+    station: r.station,
+    lon: r.lon,
+    lat: r.lat,
+    img_count: r.img_count,
+    video_count: r.video_count,
+    uploaded_count: r.img_count + r.video_count,
+    status: describePointStatus(r.img_count, r.video_count),
+    upload_time: formatBeijingTime(r.upload_time),
+  }));
 
   const headerLine = STATS_CSV_COLUMNS.map((c) => escapeCsvCell(c.header)).join(',');
   const bodyLines = dataRows.map((row) =>
@@ -121,34 +112,10 @@ router.get('/stats-csv', (_req, res) => {
 
 /**
  * GET /api/points
- * 获取全部141个避风点点位列表（含素材上传状态）
+ * 获取全部141个避风点点位列表（含素材数量统计）
  */
 router.get('/', (_req, res) => {
-  const rows = db
-    .prepare(
-      `
-    SELECT
-      p.id, p.name, p.district, p.township, p.station, p.lon, p.lat,
-      m.img_path, m.img_path_alt, m.video_path, m.video_path_alt, m.upload_time
-    FROM point_info p
-    LEFT JOIN point_material m ON p.id = m.point_id
-    ORDER BY p.id
-  `,
-    )
-    .all() as Array<{
-    id: number;
-    name: string;
-    district: string;
-    township: string;
-    station: string;
-    lon: number;
-    lat: number;
-    img_path: string | null;
-    img_path_alt: string | null;
-    video_path: string | null;
-    video_path_alt: string | null;
-    upload_time: string | null;
-  }>;
+  const rows = db.prepare(POINTS_AGG_QUERY).all() as PointAggRow[];
 
   const points = rows.map((r) => ({
     id: r.id,
@@ -158,14 +125,37 @@ router.get('/', (_req, res) => {
     station: r.station,
     lon: r.lon,
     lat: r.lat,
-    has_image: !!r.img_path,
-    has_image_alt: !!r.img_path_alt,
-    has_video: !!r.video_path,
-    has_video_alt: !!r.video_path_alt,
+    img_count: r.img_count,
+    video_count: r.video_count,
+    uploaded_count: r.img_count + r.video_count,
     upload_time: r.upload_time,
   }));
 
   res.json({ success: true, data: points });
+});
+
+/**
+ * GET /api/points/:id/materials
+ * 获取单个点位的全部素材列表（上传时间倒序）
+ * 上传页素材墙与后台详情共用
+ */
+router.get('/:id/materials', (req, res) => {
+  const pointId = parseInt(req.params.id);
+  if (isNaN(pointId) || pointId <= 0) {
+    res.status(400).json({ success: false, error: '点位ID无效' });
+    return;
+  }
+
+  const materials = db
+    .prepare(
+      `SELECT id, point_id, material_type AS type, file_path, file_size, upload_time
+       FROM material
+       WHERE point_id = ?
+       ORDER BY id DESC`,
+    )
+    .all(pointId);
+
+  res.json({ success: true, data: materials });
 });
 
 export default router;

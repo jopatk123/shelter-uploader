@@ -18,21 +18,12 @@ import { formatBeijingTime, beijingTimestamp } from '../utils/time.js';
 const router = Router();
 
 /**
- * 素材类型 → 数据库列名 映射
- * img / img_alt / video / video_alt
+ * 素材类型（v2 起不分主/备，每点位不限数量）
  */
-const TYPE_COLUMN: Record<string, string> = {
-  img: 'img_path',
-  img_alt: 'img_path_alt',
-  video: 'video_path',
-  video_alt: 'video_path_alt',
-};
+const MATERIAL_TYPES = ['img', 'video'] as const;
 
-/**
- * 校验 type 合法性，返回列名；非法返回 null
- */
-function validateType(type: string): string | null {
-  return TYPE_COLUMN[type] ?? null;
+function isValidType(type: string): boolean {
+  return (MATERIAL_TYPES as readonly string[]).includes(type);
 }
 
 /**
@@ -98,10 +89,8 @@ const STATS_CSV_COLUMNS: StatsCsvColumn[] = [
   { key: 'station', header: '船管站' },
   { key: 'lon', header: '经度' },
   { key: 'lat', header: '纬度' },
-  { key: 'has_image', header: '主图片' },
-  { key: 'has_image_alt', header: '备选图片' },
-  { key: 'has_video', header: '主视频' },
-  { key: 'has_video_alt', header: '备选视频' },
+  { key: 'img_count', header: '图片数' },
+  { key: 'video_count', header: '视频数' },
   { key: 'uploaded_count', header: '已上传素材数' },
   { key: 'status', header: '完成状态' },
   { key: 'upload_time', header: '最后上传时间' },
@@ -123,12 +112,23 @@ function escapeCsvCell(value: unknown): string {
 }
 
 /**
- * 依据主图/主视频上传情况判定完成状态文案（与前端 getPointState 语义一致）
+ * 依据图片/视频上传情况判定完成状态文案（与前端 getPointState 语义一致）
  */
-function describePointStatus(hasImage: boolean, hasVideo: boolean): string {
-  if (hasImage || hasVideo) return '已完成';
+function describePointStatus(imgCount: number, videoCount: number): string {
+  if (imgCount > 0 || videoCount > 0) return '已完成';
   return '未上传';
 }
+
+/** 点位素材聚合查询 SQL */
+const POINTS_AGG_QUERY = `
+  SELECT
+    p.id, p.name, p.district, p.township, p.station, p.lon, p.lat,
+    COALESCE(SUM(CASE WHEN m.material_type = 'img' THEN 1 ELSE 0 END), 0) AS img_count,
+    COALESCE(SUM(CASE WHEN m.material_type = 'video' THEN 1 ELSE 0 END), 0) AS video_count,
+    MAX(m.upload_time) AS upload_time
+  FROM point_info p
+  LEFT JOIN material m ON p.id = m.point_id
+`;
 
 /**
  * GET /api/admin/stats-csv?ticket=xxx[&ids=1,2,3]
@@ -139,8 +139,7 @@ function describePointStatus(hasImage: boolean, hasVideo: boolean): string {
  * 鉴权方式：一次性下载票据（60秒有效，仅可用一次）
  *
  * 表格列：序号、名称、区县、乡镇、船管站、经度、纬度、
- *         主图片、备选图片、主视频、备选视频、
- *         已上传素材数、完成状态、最后上传时间
+ *         图片数、视频数、已上传素材数、完成状态、最后上传时间
  */
 router.get('/stats-csv', ticketMiddleware, (req, res) => {
   // 解析可选 ids 参数；非法值返回 400
@@ -160,12 +159,9 @@ router.get('/stats-csv', ticketMiddleware, (req, res) => {
   const rows = db
     .prepare(
       `
-    SELECT
-      p.id, p.name, p.district, p.township, p.station, p.lon, p.lat,
-      m.img_path, m.img_path_alt, m.video_path, m.video_path_alt, m.upload_time
-    FROM point_info p
-    LEFT JOIN point_material m ON p.id = m.point_id
+    ${POINTS_AGG_QUERY}
     ${idFilter}
+    GROUP BY p.id
     ORDER BY p.id
   `,
     )
@@ -177,10 +173,8 @@ router.get('/stats-csv', ticketMiddleware, (req, res) => {
     station: string;
     lon: number;
     lat: number;
-    img_path: string | null;
-    img_path_alt: string | null;
-    video_path: string | null;
-    video_path_alt: string | null;
+    img_count: number;
+    video_count: number;
     upload_time: string | null;
   }>;
 
@@ -190,29 +184,20 @@ router.get('/stats-csv', ticketMiddleware, (req, res) => {
   }
 
   // 计算字段并组装行
-  const dataRows = rows.map((r) => {
-    const hasImage = !!r.img_path;
-    const hasImageAlt = !!r.img_path_alt;
-    const hasVideo = !!r.video_path;
-    const hasVideoAlt = !!r.video_path_alt;
-    const uploadedCount = [hasImage, hasImageAlt, hasVideo, hasVideoAlt].filter(Boolean).length;
-    return {
-      id: r.id,
-      name: r.name,
-      district: r.district,
-      township: r.township,
-      station: r.station,
-      lon: r.lon,
-      lat: r.lat,
-      has_image: hasImage,
-      has_image_alt: hasImageAlt,
-      has_video: hasVideo,
-      has_video_alt: hasVideoAlt,
-      uploaded_count: uploadedCount,
-      status: describePointStatus(hasImage, hasVideo),
-      upload_time: formatBeijingTime(r.upload_time),
-    };
-  });
+  const dataRows = rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    district: r.district,
+    township: r.township,
+    station: r.station,
+    lon: r.lon,
+    lat: r.lat,
+    img_count: r.img_count,
+    video_count: r.video_count,
+    uploaded_count: r.img_count + r.video_count,
+    status: describePointStatus(r.img_count, r.video_count),
+    upload_time: formatBeijingTime(r.upload_time),
+  }));
 
   // 生成 CSV 文本
   const headerLine = STATS_CSV_COLUMNS.map((c) => escapeCsvCell(c.header)).join(',');
@@ -240,12 +225,13 @@ router.get('/stats-csv', ticketMiddleware, (req, res) => {
 });
 
 /**
- * GET /api/admin/batch-download?type=img|img_alt|video|video_alt&ticket=xxx[&ids=1,2,3]
+ * GET /api/admin/batch-download?type=img|video&ticket=xxx[&ids=1,2,3]
  * 批量下载点位素材（zip 流式打包）
  *   - 不传 ids：下载所有已上传该类型素材的点位
  *   - 传 ids：仅下载指定点位中已上传该类型素材的部分（未上传的点位自动跳过）
  *
- * 文件名规则：point_{id}_{点位名称}_{type}.{ext}
+ * v2 起每点位不限素材数量，zip 内按点位分文件夹：
+ *   point_{id}_{点位名称}/{type}_{序号}.{ext}
  *
  * 鉴权方式：一次性下载票据（60秒有效，仅可用一次）
  * 票据通过 POST /api/admin/download-ticket（需 JWT 鉴权）获取
@@ -258,11 +244,8 @@ router.get('/stats-csv', ticketMiddleware, (req, res) => {
  */
 router.get('/batch-download', ticketMiddleware, (req, res) => {
   const type = req.query.type as string;
-  const column = validateType(type);
-  if (!column) {
-    res
-      .status(400)
-      .json({ success: false, error: 'type 参数无效，仅支持 img / img_alt / video / video_alt' });
+  if (!isValidType(type)) {
+    res.status(400).json({ success: false, error: 'type 参数无效，仅支持 img / video' });
     return;
   }
 
@@ -281,17 +264,23 @@ router.get('/batch-download', ticketMiddleware, (req, res) => {
   const idFilter = placeholders ? `AND p.id IN (${placeholders})` : '';
   const params: unknown[] = ids ?? [];
 
+  // v2 起每点位不限素材数量：按素材行查询，打包时按点位分文件夹，同点位内按序号编号
   const rows = db
     .prepare(
       `
-    SELECT p.id, p.name, m.${column} AS rel_path
+    SELECT p.id, p.name, m.id AS material_id, m.file_path
     FROM point_info p
-    INNER JOIN point_material m ON p.id = m.point_id
-    WHERE m.${column} IS NOT NULL ${idFilter}
-    ORDER BY p.id
+    INNER JOIN material m ON p.id = m.point_id
+    WHERE m.material_type = ? ${idFilter}
+    ORDER BY p.id, m.id
   `,
     )
-    .all(...params) as Array<{ id: number; name: string; rel_path: string }>;
+    .all(type, ...params) as Array<{
+    id: number;
+    name: string;
+    material_id: number;
+    file_path: string;
+  }>;
 
   if (rows.length === 0) {
     res.status(404).json({ success: false, error: '没有可下载的素材' });
@@ -300,13 +289,7 @@ router.get('/batch-download', ticketMiddleware, (req, res) => {
 
   // 生成 zip 文件名（北京时间）
   const ts = beijingTimestamp();
-  const typeLabelMap: Record<string, string> = {
-    img: 'images',
-    img_alt: 'images_alt',
-    video: 'videos',
-    video_alt: 'videos_alt',
-  };
-  const zipName = `${typeLabelMap[type]}_${ts}.zip`;
+  const zipName = `${type === 'img' ? 'images' : 'videos'}_${ts}.zip`;
 
   // 设置响应头
   res.setHeader('Content-Type', 'application/zip');
@@ -358,23 +341,28 @@ router.get('/batch-download', ticketMiddleware, (req, res) => {
   // ── 逐个添加文件，逐文件容错 ──
   let addedCount = 0;
   let skippedCount = 0;
+  // 同一点位内的素材序号（按 id 升序）
+  const perPointCounter = new Map<number, number>();
 
   for (const row of rows) {
     if (clientDisconnected) break;
 
-    const fullPath = path.join(STORAGE_DIR, row.rel_path);
+    const fullPath = path.join(STORAGE_DIR, row.file_path);
 
     // 磁盘文件不存在 → 跳过并记录警告
     if (!fs.existsSync(fullPath)) {
-      console.warn(`[batch-download] 跳过缺失文件: ${row.rel_path}`);
+      console.warn(`[batch-download] 跳过缺失文件: ${row.file_path}`);
       skippedCount++;
       continue;
     }
 
-    // 安全文件名（点位名称可能含中文标点，仅替换文件系统非法字符）
-    const ext = path.extname(row.rel_path);
+    // 安全文件夹名（点位名称可能含中文标点，仅替换文件系统非法字符）
     const safeName = row.name.replace(/[/\\:*?"<>|]/g, '_');
-    const entryName = `point_${row.id}_${safeName}_${type}${ext}`;
+    const seq = (perPointCounter.get(row.id) ?? 0) + 1;
+    perPointCounter.set(row.id, seq);
+
+    const ext = path.extname(row.file_path);
+    const entryName = `point_${row.id}_${safeName}/${type}_${seq}${ext}`;
 
     try {
       archive.file(fullPath, { name: entryName });
@@ -426,30 +414,31 @@ router.post('/download-ticket', (_req, res) => {
 
 /**
  * GET /api/admin/points
- * 点位总览（含素材状态、上传时间），支持按状态筛选
+ * 点位总览（含素材数量、上传时间），支持按素材构成筛选
  * query: filter=all|img_only|video_only|completed
+ *   - img_only:   仅有图片（无视频）
+ *   - video_only: 仅有视频（无图片）
+ *   - completed:  至少上传一种素材
  */
 router.get('/points', (req, res) => {
   const filter = (req.query.filter as string) || 'all';
 
-  let whereClause = '';
+  // 基于聚合后的 img_count / video_count 筛选（HAVING 子句）
+  let havingClause = '';
   if (filter === 'img_only') {
-    whereClause = 'WHERE m.img_path IS NOT NULL AND m.video_path IS NULL';
+    havingClause = 'HAVING img_count > 0 AND video_count = 0';
   } else if (filter === 'video_only') {
-    whereClause = 'WHERE m.img_path IS NULL AND m.video_path IS NOT NULL';
+    havingClause = 'HAVING img_count = 0 AND video_count > 0';
   } else if (filter === 'completed') {
-    whereClause = 'WHERE m.img_path IS NOT NULL OR m.video_path IS NOT NULL';
+    havingClause = 'HAVING img_count > 0 OR video_count > 0';
   }
 
   const rows = db
     .prepare(
       `
-    SELECT
-      p.id, p.name, p.district, p.township, p.station, p.lon, p.lat,
-      m.img_path, m.img_path_alt, m.video_path, m.video_path_alt, m.upload_time
-    FROM point_info p
-    LEFT JOIN point_material m ON p.id = m.point_id
-    ${whereClause}
+    ${POINTS_AGG_QUERY}
+    GROUP BY p.id
+    ${havingClause}
     ORDER BY p.id
   `,
     )
@@ -461,10 +450,8 @@ router.get('/points', (req, res) => {
     station: string;
     lon: number;
     lat: number;
-    img_path: string | null;
-    img_path_alt: string | null;
-    video_path: string | null;
-    video_path_alt: string | null;
+    img_count: number;
+    video_count: number;
     upload_time: string | null;
   }>;
 
@@ -476,14 +463,9 @@ router.get('/points', (req, res) => {
     station: r.station,
     lon: r.lon,
     lat: r.lat,
-    has_image: !!r.img_path,
-    has_image_alt: !!r.img_path_alt,
-    has_video: !!r.video_path,
-    has_video_alt: !!r.video_path_alt,
-    img_path: r.img_path,
-    img_path_alt: r.img_path_alt,
-    video_path: r.video_path,
-    video_path_alt: r.video_path_alt,
+    img_count: r.img_count,
+    video_count: r.video_count,
+    uploaded_count: r.img_count + r.video_count,
     upload_time: r.upload_time,
   }));
 
@@ -492,7 +474,7 @@ router.get('/points', (req, res) => {
 
 /**
  * GET /api/admin/point/:id
- * 点位详情
+ * 点位详情（含该点位全部素材列表）
  */
 router.get('/point/:id', (req, res) => {
   const pointId = parseInt(req.params.id);
@@ -504,11 +486,8 @@ router.get('/point/:id', (req, res) => {
   const row = db
     .prepare(
       `
-    SELECT
-      p.id, p.name, p.district, p.township, p.station, p.lon, p.lat,
-      m.img_path, m.img_path_alt, m.video_path, m.video_path_alt, m.upload_time
+    SELECT p.id, p.name, p.district, p.township, p.station, p.lon, p.lat
     FROM point_info p
-    LEFT JOIN point_material m ON p.id = m.point_id
     WHERE p.id = ?
   `,
     )
@@ -521,11 +500,6 @@ router.get('/point/:id', (req, res) => {
         station: string;
         lon: number;
         lat: number;
-        img_path: string | null;
-        img_path_alt: string | null;
-        video_path: string | null;
-        video_path_alt: string | null;
-        upload_time: string | null;
       }
     | undefined;
 
@@ -534,47 +508,68 @@ router.get('/point/:id', (req, res) => {
     return;
   }
 
+  const materials = db
+    .prepare(
+      `
+    SELECT id, material_type, file_path, file_size, upload_time
+    FROM material
+    WHERE point_id = ?
+    ORDER BY id DESC
+  `,
+    )
+    .all(pointId) as Array<{
+    id: number;
+    material_type: string;
+    file_path: string;
+    file_size: number;
+    upload_time: string | null;
+  }>;
+
+  const imgCount = materials.filter((m) => m.material_type === 'img').length;
+  const videoCount = materials.length - imgCount;
+  // 最新上传时间（素材按 id DESC 排列，首个非空值即最新）
+  const uploadTime = materials.find((m) => m.upload_time)?.upload_time ?? null;
+
   res.json({
     success: true,
     data: {
       ...row,
-      has_image: !!row.img_path,
-      has_image_alt: !!row.img_path_alt,
-      has_video: !!row.video_path,
-      has_video_alt: !!row.video_path_alt,
+      img_count: imgCount,
+      video_count: videoCount,
+      uploaded_count: materials.length,
+      upload_time: uploadTime,
+      materials: materials.map((m) => ({
+        id: m.id,
+        type: m.material_type,
+        path: m.file_path,
+        size: m.file_size,
+        upload_time: m.upload_time,
+      })),
     },
   });
 });
 
 /**
- * GET /api/admin/download/:id?type=img|img_alt|video|video_alt
- * 下载素材（流式传输）
+ * GET /api/admin/download/:id
+ * 下载单个素材（流式传输），:id 为素材行 id
  */
 router.get('/download/:id', (req, res) => {
-  const pointId = parseInt(req.params.id);
-  const type = req.query.type as string;
-  const column = validateType(type);
+  const materialId = parseInt(req.params.id);
 
-  if (isNaN(pointId) || !column) {
-    res.status(400).json({ success: false, error: '参数无效' });
+  if (isNaN(materialId)) {
+    res.status(400).json({ success: false, error: '素材ID无效' });
     return;
   }
 
-  const row = db
-    .prepare(`SELECT ${column} AS rel_path FROM point_material WHERE point_id = ?`)
-    .get(pointId) as { rel_path: string | null } | undefined;
+  const row = db.prepare(`SELECT file_path FROM material WHERE id = ?`).get(materialId) as
+    { file_path: string } | undefined;
 
   if (!row) {
-    res.status(404).json({ success: false, error: '点位不存在' });
+    res.status(404).json({ success: false, error: '素材不存在' });
     return;
   }
 
-  if (!row.rel_path) {
-    res.status(404).json({ success: false, error: '该类型素材未上传' });
-    return;
-  }
-
-  const fullPath = path.join(STORAGE_DIR, row.rel_path);
+  const fullPath = path.join(STORAGE_DIR, row.file_path);
   if (!fs.existsSync(fullPath)) {
     res.status(404).json({ success: false, error: '文件不存在' });
     return;
@@ -599,64 +594,29 @@ router.get('/download/:id', (req, res) => {
 });
 
 /**
- * DELETE /api/admin/material/:id?type=img|img_alt|video|video_alt
- * 删除素材
+ * DELETE /api/admin/material/:id
+ * 删除素材（:id 为素材行 id），同步删除数据库记录与磁盘文件
  */
 router.delete('/material/:id', (req, res) => {
-  const pointId = parseInt(req.params.id);
-  const type = req.query.type as string;
-  const column = validateType(type);
+  const materialId = parseInt(req.params.id);
 
-  if (isNaN(pointId) || !column) {
-    res.status(400).json({ success: false, error: '参数无效' });
+  if (isNaN(materialId)) {
+    res.status(400).json({ success: false, error: '素材ID无效' });
     return;
   }
 
-  const row = db
-    .prepare(`SELECT ${column} AS rel_path FROM point_material WHERE point_id = ?`)
-    .get(pointId) as { rel_path: string | null } | undefined;
+  const row = db.prepare(`SELECT file_path FROM material WHERE id = ?`).get(materialId) as
+    { file_path: string } | undefined;
 
   if (!row) {
-    res.status(404).json({ success: false, error: '点位不存在' });
+    res.status(404).json({ success: false, error: '素材不存在' });
     return;
   }
 
-  if (!row.rel_path) {
-    res.json({ success: true, message: '无素材需删除' });
-    return;
-  }
+  const fullPath = path.join(STORAGE_DIR, row.file_path);
 
-  const fullPath = path.join(STORAGE_DIR, row.rel_path);
-
-  // 先更新数据库（与 /complete 策略一致：先DB后文件，最坏留孤儿文件而非DB指向已删文件）
-  // 若该素材是该点位最后一个，同步清空 upload_time
-  db.transaction(() => {
-    db.prepare(`UPDATE point_material SET ${column} = NULL WHERE point_id = ?`).run(pointId);
-
-    // 检查是否所有素材都已清空
-    const remaining = db
-      .prepare(
-        `SELECT img_path, img_path_alt, video_path, video_path_alt FROM point_material WHERE point_id = ?`,
-      )
-      .get(pointId) as
-      | {
-          img_path: string | null;
-          img_path_alt: string | null;
-          video_path: string | null;
-          video_path_alt: string | null;
-        }
-      | undefined;
-
-    if (
-      remaining &&
-      !remaining.img_path &&
-      !remaining.img_path_alt &&
-      !remaining.video_path &&
-      !remaining.video_path_alt
-    ) {
-      db.prepare(`UPDATE point_material SET upload_time = NULL WHERE point_id = ?`).run(pointId);
-    }
-  })();
+  // 先删数据库记录（先DB后文件，最坏留孤儿文件，由定时清理兜底）
+  db.prepare(`DELETE FROM material WHERE id = ?`).run(materialId);
 
   // DB 提交后删除文件（失败则留孤儿文件，由定时清理兜底）
   if (fs.existsSync(fullPath)) {

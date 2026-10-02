@@ -6,6 +6,16 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 /**
+ * 将字节数格式化为易读的文件大小字符串（如 1.5 MB / 320 KB / 512 B）
+ */
+export function formatFileSize(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
+}
+
+/**
  * 将 SQLite 存储的 UTC 时间字符串格式化为北京时间字符串
  *
  * 背景：后端通过 SQLite datetime('now') 写入 upload_time，返回的是 UTC 时间，
@@ -28,18 +38,19 @@ export function formatBeijingTime(utcStr: string | null | undefined): string {
 
 /**
  * 点位上传状态（仅用于圆点/UI 颜色区分，不影响完成百分比统计）
- * - complete: 主图 + 主视频 均已上传（绿色）
+ * - complete: 图片 + 视频 均已上传（绿色）
  * - partial:  仅上传其中之一（黄色，统计上也算完成）
  * - empty:    均未上传（红色）
  */
 export type PointState = 'complete' | 'partial' | 'empty';
 
 /**
- * 依据主图 / 主视频上传情况判定点位状态
- * 仅基于 has_image 与 has_video，与备选素材无关
- * 统计完成百分比使用 has_image || has_video，即 partial 也计入完成
+ * 依据图片 / 视频上传数量判定点位状态
+ * 统计完成百分比使用 imgCount > 0 || videoCount > 0，即 partial 也计入完成
  */
-export function getPointState(hasImage: boolean, hasVideo: boolean): PointState {
+export function getPointState(imgCount: number, videoCount: number): PointState {
+  const hasImage = imgCount > 0;
+  const hasVideo = videoCount > 0;
   if (hasImage && hasVideo) return 'complete';
   if (hasImage || hasVideo) return 'partial';
   return 'empty';
