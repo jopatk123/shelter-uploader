@@ -1,0 +1,70 @@
+@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Noto+Sans+SC:wght@400;500;700&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-family: "Noto Sans SC", system-ui, sans-serif;
+  line-height: 1.6;
+  font-weight: 400;
+  color-scheme: dark;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  background-color: #0f1820;
+  color: #d4dae8;
+  min-width: 1280px;
+}
+
+/* 滚动条样式 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #1a2332;
+}
+::-webkit-scrollbar-thumb {
+  background: #3a4862;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #4a5874;
+}
+
+/* 进度条通用样式 */
+.progress-bar-track {
+  background: #2d3a52;
+  border-radius: 999px;
+  overflow: hidden;
+  height: 6px;
+}
+.progress-bar-fill {
+  background: linear-gradient(90deg, #00d4ff, #0099cc);
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.3s ease;
+}
+
+/* 点阵圆点悬浮 */
+.dot-tooltip {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: #0f1820;
+  border: 1px solid #3a4862;
+  border-radius: 6px;
+  padding: 8px 12px;
+  white-space: nowrap;
+  font-size: 12px;
+  z-index: 100;
+  pointer-events: none;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+}

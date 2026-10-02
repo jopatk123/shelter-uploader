@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  uploader:
+    build: .
+    container_name: shelter-uploader
+    restart: unless-stopped
+    ports:
+      - "15000:3001"
+    environment:
+      - PORT=3001
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-123456}
+      - JWT_SECRET=${JWT_SECRET:-uploader-secret-key-2024}
+      - CHUNK_SIZE=${CHUNK_SIZE:-5}
+      - DATA_DIR=/app/data
+    volumes:
+      - ./data:/app/data
+    # 适配低配服务器，限制资源
+    deploy:
+      resources:
+        limits:
+          memory: 512M

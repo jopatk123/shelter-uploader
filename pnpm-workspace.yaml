@@ -1,0 +1,9 @@
+# pnpm 10+ 配置（取代 package.json 中的 pnpm 字段）
+# allowBuilds：pnpm 11 审批机制（值必须为布尔）
+allowBuilds:
+  better-sqlite3: true
+  esbuild: true
+# onlyBuiltDependencies：pnpm 10 兼容写法
+onlyBuiltDependencies:
+  - better-sqlite3
+  - esbuild
