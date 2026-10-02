@@ -5,7 +5,7 @@
 import type { PointData } from '../points-data.js';
 
 export const POINTS_PART_1: PointData[] = [
-{
+  {
     id: 1,
     name: '灰炉头码头',
     city: '福州市',
@@ -18,7 +18,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.1183916169067,
     remark: '',
   },
-{
+  {
     id: 2,
     name: '亿源码头',
     city: '福州市',
@@ -31,7 +31,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.3621715846672,
     remark: '',
   },
-{
+  {
     id: 3,
     name: '二级码头',
     city: '福州市',
@@ -44,7 +44,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.3654140265347,
     remark: '',
   },
-{
+  {
     id: 4,
     name: '沙沃码头',
     city: '福州市',
@@ -57,7 +57,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.3562429034704,
     remark: '',
   },
-{
+  {
     id: 5,
     name: '高塘码头',
     city: '福州市',
@@ -70,7 +70,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.3257672451895,
     remark: '',
   },
-{
+  {
     id: 6,
     name: '东岱街停泊点、东岱大涂停泊点',
     city: '福州市',
@@ -83,7 +83,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.2450293350844,
     remark: '',
   },
-{
+  {
     id: 7,
     name: '东水停泊点',
     city: '福州市',
@@ -96,7 +96,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.2442705611607,
     remark: '',
   },
-{
+  {
     id: 8,
     name: '蝉步停泊点',
     city: '福州市',
@@ -109,7 +109,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.2430598012464,
     remark: '',
   },
-{
+  {
     id: 9,
     name: '洪塘停泊点',
     city: '福州市',
@@ -122,7 +122,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.2383689761849,
     remark: '',
   },
-{
+  {
     id: 10,
     name: '东头澳口',
     city: '福州市',
@@ -135,7 +135,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.3231519034407,
     remark: '',
   },
-{
+  {
     id: 11,
     name: '东沃澳口',
     city: '福州市',
@@ -148,7 +148,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.3249297650691,
     remark: '',
   },
-{
+  {
     id: 12,
     name: '琯头渡轮码头',
     city: '福州市',
@@ -161,7 +161,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.1334142244228,
     remark: '',
   },
-{
+  {
     id: 13,
     name: '定安码头',
     city: '福州市',
@@ -174,7 +174,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.1816095770191,
     remark: '',
   },
-{
+  {
     id: 14,
     name: '东岸码头',
     city: '福州市',
@@ -187,7 +187,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.1708058715088,
     remark: '',
   },
-{
+  {
     id: 15,
     name: '塘下码头',
     city: '福州市',
@@ -200,7 +200,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.1403565335854,
     remark: '',
   },
-{
+  {
     id: 16,
     name: '壶江码头',
     city: '福州市',
@@ -213,7 +213,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.1181321138164,
     remark: '',
   },
-{
+  {
     id: 17,
     name: '川石码头',
     city: '福州市',
@@ -226,7 +226,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.1378231250615,
     remark: '',
   },
-{
+  {
     id: 18,
     name: '黄岐中心渔港',
     city: '福州市',
@@ -239,7 +239,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.3179410789332,
     remark: '',
   },
-{
+  {
     id: 19,
     name: '长赤澳口',
     city: '福州市',
@@ -252,7 +252,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.317333897261,
     remark: '',
   },
-{
+  {
     id: 20,
     name: '赤才后仑三级渔港',
     city: '福州市',
@@ -265,7 +265,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.3543814114242,
     remark: '',
   },
-{
+  {
     id: 21,
     name: '赤才村澳口',
     city: '福州市',
@@ -278,7 +278,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.3540124595008,
     remark: '',
   },
-{
+  {
     id: 22,
     name: '大建三级渔港',
     city: '福州市',
@@ -291,7 +291,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.3498970144457,
     remark: '',
   },
-{
+  {
     id: 23,
     name: '下屿村船舶停泊点',
     city: '福州市',
@@ -304,7 +304,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.3613733219577,
     remark: '',
   },
-{
+  {
     id: 24,
     name: '前屿村船舶停泊点',
     city: '福州市',
@@ -317,7 +317,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.3553345097481,
     remark: '',
   },
-{
+  {
     id: 25,
     name: '颜歧船舶停泊点',
     city: '福州市',
@@ -330,7 +330,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.3624971770045,
     remark: '',
   },
-{
+  {
     id: 26,
     name: '屿头船舶停泊点',
     city: '福州市',
@@ -343,7 +343,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.35924105764,
     remark: '',
   },
-{
+  {
     id: 27,
     name: '南门村码头',
     city: '福州市',
@@ -356,7 +356,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.3721187073413,
     remark: '',
   },
-{
+  {
     id: 28,
     name: '玉井村码头',
     city: '福州市',
@@ -369,7 +369,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.3813967731375,
     remark: '',
   },
-{
+  {
     id: 29,
     name: '村前村码头',
     city: '福州市',
@@ -382,7 +382,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.3965961266111,
     remark: '',
   },
-{
+  {
     id: 30,
     name: '赤石村码头',
     city: '福州市',
@@ -395,7 +395,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.4222137340645,
     remark: '',
   },
-{
+  {
     id: 31,
     name: '浮曦村码头',
     city: '福州市',
@@ -408,7 +408,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.4441905516281,
     remark: '',
   },
-{
+  {
     id: 32,
     name: '镇区停泊点',
     city: '福州市',
@@ -421,7 +421,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.2438914791716,
     remark: '',
   },
-{
+  {
     id: 33,
     name: '官岭停泊点',
     city: '福州市',
@@ -434,7 +434,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.2804395315567,
     remark: '',
   },
-{
+  {
     id: 34,
     name: '中麻停泊点',
     city: '福州市',
@@ -447,7 +447,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.2759519583511,
     remark: '',
   },
-{
+  {
     id: 35,
     name: '山坑停泊点',
     city: '福州市',
@@ -460,7 +460,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.272177729133,
     remark: '',
   },
-{
+  {
     id: 36,
     name: '松坞停泊点',
     city: '福州市',
@@ -473,7 +473,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.2658199992985,
     remark: '',
   },
-{
+  {
     id: 37,
     name: '连江县苔菉中心渔港',
     city: '福州市',
@@ -486,7 +486,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.3589362604737,
     remark: '',
   },
-{
+  {
     id: 38,
     name: '连江北茭二级渔港',
     city: '福州市',
@@ -499,7 +499,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.3737871037477,
     remark: '',
   },
-{
+  {
     id: 39,
     name: '连江后港二级渔港',
     city: '福州市',
@@ -512,7 +512,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.3646423343085,
     remark: '',
   },
-{
+  {
     id: 40,
     name: '苔菉横塍沃口',
     city: '福州市',
@@ -525,7 +525,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.3682316722513,
     remark: '',
   },
-{
+  {
     id: 41,
     name: '连江后湾三级渔港',
     city: '福州市',
@@ -538,7 +538,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.3550049261237,
     remark: '',
   },
-{
+  {
     id: 42,
     name: '石湖水闸',
     city: '福州市',
@@ -551,7 +551,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.3613315102586,
     remark: '',
   },
-{
+  {
     id: 43,
     name: '晓澳二级渔港',
     city: '福州市',
@@ -564,7 +564,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.2174076253023,
     remark: '',
   },
-{
+  {
     id: 44,
     name: '百胜停靠点',
     city: '福州市',
@@ -577,7 +577,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.2358682987992,
     remark: '',
   },
-{
+  {
     id: 45,
     name: '道澳北闸停靠点',
     city: '福州市',
@@ -590,7 +590,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.2039464244657,
     remark: '',
   },
-{
+  {
     id: 46,
     name: '定海船舶停泊点',
     city: '福州市',
@@ -603,7 +603,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.2793451044781,
     remark: '',
   },
-{
+  {
     id: 47,
     name: '筱埕、埕口、逻迴、大埕船舶停泊点',
     city: '福州市',
@@ -616,7 +616,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.2987220422926,
     remark: '',
   },
-{
+  {
     id: 48,
     name: '凤贵、官坞船舶停泊点',
     city: '福州市',
@@ -629,7 +629,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.3267436702162,
     remark: '',
   },
-{
+  {
     id: 49,
     name: '蛎坞、东坪船舶停泊点',
     city: '福州市',
@@ -642,7 +642,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.2980497482881,
     remark: '',
   },
-{
+  {
     id: 50,
     name: '蛤沙船舶停泊点',
     city: '福州市',
@@ -655,7 +655,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.2774877488067,
     remark: '',
   },
-{
+  {
     id: 51,
     name: '下宫村码头停靠点',
     city: '福州市',
@@ -668,7 +668,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.3979836729251,
     remark: '',
   },
-{
+  {
     id: 52,
     name: '松皋村码头停靠点',
     city: '福州市',
@@ -681,7 +681,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.3850070832741,
     remark: '',
   },
-{
+  {
     id: 53,
     name: '江湾村码头停靠点',
     city: '福州市',
@@ -694,7 +694,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.4092527863193,
     remark: '',
   },
-{
+  {
     id: 54,
     name: '初芦村码头停靠点',
     city: '福州市',
@@ -707,7 +707,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.4137889961375,
     remark: '',
   },
-{
+  {
     id: 55,
     name: '可门村码头停靠点',
     city: '福州市',
@@ -720,7 +720,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.4229142346828,
     remark: '',
   },
-{
+  {
     id: 56,
     name: '新辉村码头停靠点',
     city: '福州市',
@@ -733,7 +733,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.4120177980395,
     remark: '',
   },
-{
+  {
     id: 57,
     name: '阜山村三级渔港',
     city: '福州市',
@@ -746,7 +746,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.0213791099469,
     remark: '',
   },
-{
+  {
     id: 58,
     name: '石壁三级渔港',
     city: '福州市',
@@ -759,7 +759,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 25.9764827398673,
     remark: '',
   },
-{
+  {
     id: 59,
     name: '下沙停泊点',
     city: '福州市',
@@ -772,7 +772,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 25.8148244983733,
     remark: '',
   },
-{
+  {
     id: 60,
     name: '浮岐停泊点',
     city: '福州市',
@@ -785,7 +785,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.051556576335,
     remark: '',
   },
-{
+  {
     id: 61,
     name: '大鹤停泊点',
     city: '福州市',
@@ -798,7 +798,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 25.957471578171,
     remark: '',
   },
-{
+  {
     id: 62,
     name: '十七孔避风点',
     city: '福州市',
@@ -811,7 +811,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 25.8442302139027,
     remark: '',
   },
-{
+  {
     id: 63,
     name: '百户澳三级渔港',
     city: '福州市',
@@ -824,7 +824,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 25.9008864170794,
     remark: '',
   },
-{
+  {
     id: 64,
     name: '三营澳二级渔港',
     city: '福州市',
@@ -837,7 +837,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 25.904066009574,
     remark: '',
   },
-{
+  {
     id: 65,
     name: '潭头镇二级渔港',
     city: '福州市',
@@ -850,7 +850,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.047498904805,
     remark: '',
   },
-{
+  {
     id: 66,
     name: '潭头镇克凤村五门闸停泊点',
     city: '福州市',
@@ -863,7 +863,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.0281423989121,
     remark: '',
   },
-{
+  {
     id: 67,
     name: '潭头镇汶上村寺下停泊点',
     city: '福州市',
@@ -876,7 +876,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.0449498921606,
     remark: '',
   },
-{
+  {
     id: 68,
     name: '五显鼻二级渔港',
     city: '福州市',
@@ -889,7 +889,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 26.0261463685303,
     remark: '',
   },
-{
+  {
     id: 69,
     name: '牛头湾停泊点',
     city: '福州市',
@@ -902,7 +902,7 @@ export const POINTS_PART_1: PointData[] = [
     lat: 25.7450736186562,
     remark: '',
   },
-{
+  {
     id: 70,
     name: '大祉三级渔港',
     city: '福州市',
@@ -914,5 +914,5 @@ export const POINTS_PART_1: PointData[] = [
     lon: 119.597805822678,
     lat: 25.718365743431,
     remark: '',
-  }
+  },
 ];
