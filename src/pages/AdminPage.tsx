@@ -266,8 +266,8 @@ export default function AdminPage() {
   return (
     <div className="min-h-screen bg-base-900">
       {/* 顶部栏 */}
-      <header className="bg-base-800 border-b border-base-600 px-6 py-3 sticky top-0 z-10">
-        <div className="flex items-center justify-between">
+      <header className="bg-base-800 border-b border-base-600 px-4 py-3 sm:px-6 sticky top-0 z-10">
+        <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded bg-accent/20 border border-accent/40 flex items-center justify-center">
               <span className="text-accent font-mono font-bold text-sm">A</span>
@@ -294,7 +294,7 @@ export default function AdminPage() {
         </div>
       </header>
 
-      <main className="p-6 max-w-[1600px] mx-auto">
+      <main className="p-4 sm:p-6 max-w-[1600px] mx-auto">
         {/* 统计概览 */}
         <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-3 mb-6">
           <StatCard label="总点位数" value={stats.total} color="text-base-100" />

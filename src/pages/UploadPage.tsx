@@ -93,14 +93,14 @@ export default function UploadPage() {
   return (
     <div className="min-h-screen bg-base-900">
       {/* 顶部栏 */}
-      <header className="bg-base-800 border-b border-base-600 px-6 py-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded bg-accent/20 border border-accent/40 flex items-center justify-center">
+      <header className="bg-base-800 border-b border-base-600 px-4 py-3 sm:px-6">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-8 h-8 shrink-0 rounded bg-accent/20 border border-accent/40 flex items-center justify-center">
               <span className="text-accent font-mono font-bold text-sm">U</span>
             </div>
-            <div>
-              <h1 className="font-mono text-base text-base-100">
+            <div className="min-w-0">
+              <h1 className="font-mono text-sm sm:text-base text-base-100 truncate">
                 福州沿海码头避风点点位素材上传系统
               </h1>
               <p className="text-xs text-base-400">
@@ -111,14 +111,14 @@ export default function UploadPage() {
           </div>
           <a
             href="/admin"
-            className="text-xs text-base-300 hover:text-accent transition-colors font-mono border border-base-600 px-3 py-1.5 rounded"
+            className="shrink-0 text-xs text-base-300 hover:text-accent transition-colors font-mono border border-base-600 px-3 py-1.5 rounded"
           >
             管理后台 →
           </a>
         </div>
       </header>
 
-      <main className="p-6 max-w-[1600px] mx-auto">
+      <main className="p-4 sm:p-6 max-w-[1600px] mx-auto">
         {/* 点位状态点阵 */}
         <PointDotGrid
           points={points}
@@ -129,9 +129,9 @@ export default function UploadPage() {
         />
 
         {/* 主操作区 */}
-        <div className="grid grid-cols-3 gap-6 mt-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6 mt-4 lg:mt-6">
           {/* 左侧：点位选择 */}
-          <div className="col-span-1">
+          <div className="lg:col-span-1">
             <div className="bg-base-700 border border-base-600 rounded-lg p-5">
               <h3 className="font-mono text-sm text-base-100 mb-4 flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-accent"></span>
@@ -141,7 +141,7 @@ export default function UploadPage() {
               <select
                 value={selectedId ?? ''}
                 onChange={(e) => setSelectedId(e.target.value ? Number(e.target.value) : null)}
-                className="w-full bg-base-800 border border-base-600 rounded px-3 py-2.5 text-sm text-base-100 focus:border-accent focus:outline-none font-mono"
+                className="w-full bg-base-800 border border-base-600 rounded px-3 py-2.5 text-base sm:text-sm text-base-100 focus:border-accent focus:outline-none font-mono"
               >
                 <option value="">-- 请选择点位 --</option>
                 {points.map((p) => (
@@ -228,7 +228,7 @@ export default function UploadPage() {
           </div>
 
           {/* 右侧：上传区（图片 / 视频，均不限数量） */}
-          <div className="col-span-2 grid grid-cols-2 gap-4">
+          <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4">
             <ImageUploadPanel
               key={`${selectedId ?? 'none'}-img`}
               pointId={selectedId}

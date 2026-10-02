@@ -76,8 +76,8 @@ export default function PointDotGrid({
 
   return (
     <div className="bg-base-700 border border-base-600 rounded-lg p-4">
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between mb-3">
+        <div className="flex flex-wrap items-center gap-3">
           <h3 className="font-mono text-sm text-base-200">
             点位状态总览
             <span className="ml-2 text-base-400">
@@ -99,7 +99,7 @@ export default function PointDotGrid({
             </button>
           )}
         </div>
-        <div className="flex items-center gap-4 text-xs text-base-300">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-base-300">
           <span className="flex items-center gap-1.5">
             <span className="w-2.5 h-2.5 rounded-full bg-status-green"></span>
             全部完成
@@ -162,7 +162,7 @@ export default function PointDotGrid({
         })}
       </div>
 
-      <div className="grid grid-cols-47 gap-1.5" style={{ gridTemplateColumns: 'repeat(47, 1fr)' }}>
+      <div className="point-dot-grid">
         {points.map((p) => {
           const state = getPointState(p.img_count, p.video_count);
           const isSelected = p.id === selectedId;
@@ -202,7 +202,7 @@ export default function PointDotGrid({
                   boxShadow: isHighlighted ? '0 0 6px #00d4ff66' : STATE_GLOW[state],
                 }}
               />
-              <span className="absolute inset-0 flex items-center justify-center text-[8px] font-mono text-base-900 font-bold pointer-events-none">
+              <span className="absolute inset-0 flex items-center justify-center text-[10px] lg:text-[8px] font-mono text-base-900 font-bold pointer-events-none">
                 {p.id}
               </span>
 

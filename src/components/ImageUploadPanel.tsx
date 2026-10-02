@@ -80,7 +80,8 @@ export default function ImageUploadPanel({ pointId, onUploadComplete, onMissingG
 
       try {
         // 并行检测 EXIF GPS（不阻塞上传，仅用于上传后提示）
-        const gpsCheckPromise = hasGpsExif(item.file).catch(() => false);
+        // null：PNG/WEBP 等不适用，不提示；false：JPEG 没有经纬度
+        const gpsCheckPromise = hasGpsExif(item.file).catch(() => false as const);
 
         // 超过 300KB 的图片先压缩（优先保留分辨率）
         if (shouldCompress(item.file)) {
@@ -99,9 +100,9 @@ export default function ImageUploadPanel({ pointId, onUploadComplete, onMissingG
         setSuccessCount((c) => c + 1);
         onUploadComplete();
 
-        // 上传成功后，若图片不含 GPS，弹出提示
+        // 仅 JPEG 且不含 GPS 时提示；PNG/WEBP 返回 null，不弹窗
         const hasGps = await gpsCheckPromise;
-        if (!hasGps) onMissingGps?.();
+        if (hasGps === false) onMissingGps?.();
       } catch (err) {
         patchItem(item.key, {
           status: 'error',

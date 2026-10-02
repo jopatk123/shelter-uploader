@@ -99,16 +99,16 @@ describe('imageCheck 工具函数', () => {
       await expect(hasGpsExif(file)).resolves.toBe(false);
     });
 
-    it('PNG 文件跳过检测，返回 false', async () => {
+    it('PNG 文件跳过检测，返回 null（不视为缺少 GPS）', async () => {
       const png = makePngBuffer(200, 100);
       const file = bufferToFile(png, 'photo.png', 'image/png');
-      await expect(hasGpsExif(file)).resolves.toBe(false);
+      await expect(hasGpsExif(file)).resolves.toBeNull();
     });
 
-    it('文件名非 .jpg/.jpeg 且 MIME 非 jpeg 返回 false', async () => {
+    it('WEBP 文件跳过检测，返回 null（不视为缺少 GPS）', async () => {
       const buf = makeJpegWithGpsExif();
       const file = bufferToFile(buf, 'photo.webp', 'image/webp');
-      await expect(hasGpsExif(file)).resolves.toBe(false);
+      await expect(hasGpsExif(file)).resolves.toBeNull();
     });
 
     it('文件名 .jpeg 后缀也可识别', async () => {

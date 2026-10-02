@@ -213,14 +213,14 @@ export default function MaterialWall({ pointId, materials, loading, onChanged }:
         <button
           onClick={() => handleReplaceClick(m)}
           disabled={busy}
-          className="flex-1 py-1 text-[10px] text-accent border border-accent/40 rounded hover:bg-accent/10 transition-colors disabled:opacity-50"
+          className="flex-1 py-2 text-xs text-accent border border-accent/40 rounded hover:bg-accent/10 transition-colors disabled:opacity-50"
         >
           替换
         </button>
         <button
           onClick={() => setDeleteTarget(m)}
           disabled={busy}
-          className="flex-1 py-1 text-[10px] text-status-red border border-status-red/30 rounded hover:bg-status-red/10 transition-colors disabled:opacity-50"
+          className="flex-1 py-2 text-xs text-status-red border border-status-red/30 rounded hover:bg-status-red/10 transition-colors disabled:opacity-50"
         >
           删除
         </button>

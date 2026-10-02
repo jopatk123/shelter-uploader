@@ -72,11 +72,11 @@ function looksLikeJpeg(file: File): boolean {
  * 通过解析 JPEG 的 APP1(Exif) 段，查找 GPS IFD 中是否存在
  * GPSLatitude(0x0002) 与 GPSLongitude(0x0004) 标签。
  *
- * 仅支持 JPEG。PNG/WEBP 等其他格式直接返回 false（不提示用户）。
- * 任何解析异常都视为「无 GPS」，安全降级。
+ * 仅支持 JPEG。PNG/WEBP 等其他格式返回 null，表示不适用，调用方不要据此弹提示。
+ * JPEG 解析失败或没有经纬度返回 false。
  */
-export async function hasGpsExif(file: File): Promise<boolean> {
-  if (!looksLikeJpeg(file)) return false;
+export async function hasGpsExif(file: File): Promise<boolean | null> {
+  if (!looksLikeJpeg(file)) return null;
 
   try {
     const buffer = await file.arrayBuffer();
