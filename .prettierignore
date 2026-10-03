@@ -1,0 +1,10 @@
+# 依赖与构建产物
+node_modules
+dist
+
+# 业务数据与本地环境
+/data
+coverage
+
+# Agent 工作区（会话记忆、技能等，属于工具产物，不参与工程代码格式化）
+.workbuddy
