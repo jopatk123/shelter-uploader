@@ -5,29 +5,33 @@
  *   - 未选中任何点位：按钮显示"下载全部 (M)"，行为同原批量下载
  *   - 选中若干点位：按钮显示"下载选中 (N)"，仅下载选中点位中已上传该类型素材的部分
  *
+ * 三个打包范围：图片 / 视频 / 图片+视频（装进同一个 zip）。
+ *
  * 配合点位的复选框列使用，由父组件维护 selectedIds。
  */
-import type { MaterialType, PointStatus } from '@/types';
+import type { BatchDownloadType, PointStatus } from '@/types';
 
-const BATCH_TYPES: { type: MaterialType; label: string; shortLabel: string }[] = [
+const BATCH_TYPES: { type: BatchDownloadType; label: string; shortLabel: string }[] = [
   { type: 'img', label: '图片', shortLabel: '图片' },
   { type: 'video', label: '视频', shortLabel: '视频' },
+  { type: 'all', label: '图片+视频', shortLabel: '素材' },
 ];
 
-/** MaterialType → PointStatus 上的计数字段名 */
-const COUNT_KEY: Record<MaterialType, 'img_count' | 'video_count'> = {
-  img: 'img_count',
-  video: 'video_count',
+/** 打包范围 → PointStatus 上参与计数的字段名（'all' 两种都算） */
+const COUNT_KEYS: Record<BatchDownloadType, ('img_count' | 'video_count')[]> = {
+  img: ['img_count'],
+  video: ['video_count'],
+  all: ['img_count', 'video_count'],
 };
 
 interface Props {
   points: PointStatus[];
   selectedIds: Set<number>;
-  downloading: MaterialType | null;
+  downloading: BatchDownloadType | null;
   batchMsg: string | null;
   statsDownloading: boolean;
   statsMsg: string | null;
-  onDownload: (type: MaterialType, ids?: number[]) => void;
+  onDownload: (type: BatchDownloadType, ids?: number[]) => void;
   onSelectAll: () => void;
   onClearSelection: () => void;
   onInvertSelection: () => void;
@@ -50,12 +54,12 @@ export default function BatchDownloadToolbar({
   const hasSelection = selectedIds.size > 0;
   const selectedIdsArr = Array.from(selectedIds);
 
-  // 在"选中"模式下，仅统计选中点位中已上传对应类型素材的文件数
-  // 在"全部"模式下，统计全部已上传该类型素材的文件数
-  const countFor = (type: MaterialType): number => {
-    const key = COUNT_KEY[type];
+  // 在"选中"模式下，仅统计选中点位中已上传对应素材的文件数
+  // 在"全部"模式下，统计全部已上传对应素材的文件数
+  const countFor = (type: BatchDownloadType): number => {
+    const keys = COUNT_KEYS[type];
     const pool = hasSelection ? points.filter((p) => selectedIds.has(p.id)) : points;
-    return pool.reduce((sum, p) => sum + p[key], 0);
+    return pool.reduce((sum, p) => sum + keys.reduce((s, k) => s + p[k], 0), 0);
   };
 
   return (

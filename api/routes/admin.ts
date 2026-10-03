@@ -41,9 +41,24 @@ const loginLimiter = createRateLimiter({
  * 素材类型（v2 起不分主/备，每点位不限数量）
  */
 const MATERIAL_TYPES = ['img', 'video'] as const;
+type MaterialType = (typeof MATERIAL_TYPES)[number];
 
-function isValidType(type: string): boolean {
-  return (MATERIAL_TYPES as readonly string[]).includes(type);
+/**
+ * 批量下载的打包范围：单类型，或把图片与视频装进同一个 zip
+ * 注意与 MATERIAL_TYPES 区分——上传/删除等接口只认单一类型，这里多出的 'all' 仅服务打包
+ */
+const BATCH_TYPES = [...MATERIAL_TYPES, 'all'] as const;
+type BatchType = (typeof BATCH_TYPES)[number];
+
+/** 打包范围 → zip 文件名前缀 */
+const ZIP_PREFIX: Record<BatchType, string> = {
+  img: 'images',
+  video: 'videos',
+  all: 'materials',
+};
+
+function isBatchType(type: string): type is BatchType {
+  return (BATCH_TYPES as readonly string[]).includes(type);
 }
 
 /**
@@ -129,13 +144,17 @@ router.get('/stats-csv', ticketMiddleware, (req, res) => {
 });
 
 /**
- * GET /api/admin/batch-download?type=img|video&ticket=xxx[&ids=1,2,3]
+ * GET /api/admin/batch-download?type=img|video|all&ticket=xxx[&ids=1,2,3]
  * 批量下载点位素材（zip 流式打包）
- *   - 不传 ids：下载所有已上传该类型素材的点位
- *   - 传 ids：仅下载指定点位中已上传该类型素材的部分（未上传的点位自动跳过）
+ *   - type=img / video：只打包该类型
+ *   - type=all：图片与视频混装进同一个 zip（这也是与上传/删除接口的区别所在）
+ *   - 不传 ids：下载所有已上传素材的点位
+ *   - 传 ids：仅下载指定点位中已上传素材的部分（未上传的点位自动跳过）
  *
- * v2 起每点位不限素材数量，zip 内按点位分文件夹：
- *   point_{id}_{点位名称}/{type}_{序号}.{ext}
+ * v2 起每点位不限素材数量，zip 内按点位分文件夹，同点位内按类型分别编号：
+ *   point_{id}_{点位名称}/{img|video}_{序号}.{ext}
+ * 序号按 (点位, 类型) 各自从 1 开始，所以 type=all 时同一个文件夹里
+ * img_1.jpg 与 video_1.mp4 并存，与分类型下载得到的命名完全一致。
  *
  * 鉴权方式：一次性下载票据（60秒有效，仅可用一次）
  * 票据通过 POST /api/admin/download-ticket（需 JWT 鉴权）获取
@@ -148,8 +167,8 @@ router.get('/stats-csv', ticketMiddleware, (req, res) => {
  */
 router.get('/batch-download', ticketMiddleware, (req, res) => {
   const type = req.query.type as string;
-  if (!isValidType(type)) {
-    res.status(400).json({ success: false, error: 'type 参数无效，仅支持 img / video' });
+  if (!isBatchType(type)) {
+    res.status(400).json({ success: false, error: 'type 参数无效，仅支持 img / video / all' });
     return;
   }
 
@@ -162,27 +181,36 @@ router.get('/batch-download', ticketMiddleware, (req, res) => {
     return;
   }
 
-  // 构造查询：默认全部，传 ids 时仅查询指定点位
-  // 使用动态占位符避免 SQL 注入
-  const placeholders = ids ? ids.map(() => '?').join(',') : null;
-  const idFilter = placeholders ? `AND p.id IN (${placeholders})` : '';
-  const params: unknown[] = ids ?? [];
+  // 逐条件拼装 WHERE，全部走占位符绑定，避免 SQL 注入
+  const conditions: string[] = [];
+  const params: unknown[] = [];
+  if (type !== 'all') {
+    conditions.push('m.material_type = ?');
+    params.push(type);
+  }
+  if (ids) {
+    conditions.push(`p.id IN (${ids.map(() => '?').join(',')})`);
+    params.push(...ids);
+  }
+  const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
   // v2 起每点位不限素材数量：按素材行查询，打包时按点位分文件夹，同点位内按序号编号
+  // 一并取出 m.material_type，使条目命名不依赖请求参数（type=all 时一个请求里两种类型混排）
   const rows = db
     .prepare(
       `
-    SELECT p.id, p.name, m.id AS material_id, m.file_path
+    SELECT p.id, p.name, m.id AS material_id, m.material_type, m.file_path
     FROM point_info p
     INNER JOIN material m ON p.id = m.point_id
-    WHERE m.material_type = ? ${idFilter}
-    ORDER BY p.id, m.id
+    ${where}
+    ORDER BY p.id, m.material_type, m.id
   `,
     )
-    .all(type, ...params) as Array<{
+    .all(...params) as Array<{
     id: number;
     name: string;
     material_id: number;
+    material_type: MaterialType;
     file_path: string;
   }>;
 
@@ -193,7 +221,7 @@ router.get('/batch-download', ticketMiddleware, (req, res) => {
 
   // 生成 zip 文件名（北京时间）
   const ts = beijingTimestamp();
-  const zipName = `${type === 'img' ? 'images' : 'videos'}_${ts}.zip`;
+  const zipName = `${ZIP_PREFIX[type]}_${ts}.zip`;
 
   // 设置响应头
   res.setHeader('Content-Type', 'application/zip');
@@ -248,8 +276,8 @@ router.get('/batch-download', ticketMiddleware, (req, res) => {
   // ── 逐个添加文件，逐文件容错 ──
   let addedCount = 0;
   let skippedCount = 0;
-  // 同一点位内的素材序号（按 id 升序）
-  const perPointCounter = new Map<number, number>();
+  // 素材序号按「点位 + 类型」计数（按 id 升序），使 type=all 与分类型下载的编号保持一致
+  const seqCounter = new Map<string, number>();
 
   for (const row of rows) {
     if (clientDisconnected) break;
@@ -265,11 +293,12 @@ router.get('/batch-download', ticketMiddleware, (req, res) => {
 
     // 安全文件夹名（点位名称可能含中文标点，仅替换文件系统非法字符）
     const safeName = row.name.replace(/[/\\:*?"<>|]/g, '_');
-    const seq = (perPointCounter.get(row.id) ?? 0) + 1;
-    perPointCounter.set(row.id, seq);
+    const seqKey = `${row.id}:${row.material_type}`;
+    const seq = (seqCounter.get(seqKey) ?? 0) + 1;
+    seqCounter.set(seqKey, seq);
 
     const ext = path.extname(row.file_path);
-    const entryName = `point_${row.id}_${safeName}/${type}_${seq}${ext}`;
+    const entryName = `point_${row.id}_${safeName}/${row.material_type}_${seq}${ext}`;
 
     try {
       archive.file(fullPath, { name: entryName });

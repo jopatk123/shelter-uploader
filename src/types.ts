@@ -8,6 +8,12 @@
  */
 export type MaterialType = 'img' | 'video';
 
+/**
+ * 批量下载的打包范围：单类型，或把图片与视频装进同一个 zip
+ * 仅用于「批量下载」这条链路，不要扩散到上传/删除等只认单一类型的接口
+ */
+export type BatchDownloadType = MaterialType | 'all';
+
 export interface PointInfo {
   id: number;
   name: string;

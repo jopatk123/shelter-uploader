@@ -17,7 +17,7 @@ import {
   setToken,
   clearToken,
 } from '@/lib/api';
-import type { PointStatus, PointDetail, MaterialType } from '@/types';
+import type { PointStatus, PointDetail, BatchDownloadType } from '@/types';
 import { getPointState, formatBeijingTime } from '@/lib/utils';
 
 type FilterType = 'all' | 'img_only' | 'video_only' | 'completed';
@@ -29,10 +29,18 @@ const FILTERS: { value: FilterType; label: string }[] = [
   { value: 'completed', label: '已完成' },
 ];
 
-/** MaterialType → 中文标签 */
-const TYPE_LABEL: Record<MaterialType, string> = {
+/** 打包范围 → 中文标签 */
+const TYPE_LABEL: Record<BatchDownloadType, string> = {
   img: '图片',
   video: '视频',
+  all: '图片+视频',
+};
+
+/** 打包范围 → 参与计数的 PointStatus 字段（'all' 两种都算） */
+const COUNT_KEYS: Record<BatchDownloadType, ('img_count' | 'video_count')[]> = {
+  img: ['img_count'],
+  video: ['video_count'],
+  all: ['img_count', 'video_count'],
 };
 
 export default function AdminPage() {
@@ -44,7 +52,7 @@ export default function AdminPage() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [clearConfirm, setClearConfirm] = useState<{ id: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [batchDownloading, setBatchDownloading] = useState<MaterialType | null>(null);
+  const [batchDownloading, setBatchDownloading] = useState<BatchDownloadType | null>(null);
   const [batchMsg, setBatchMsg] = useState<string | null>(null);
   // 统计表格下载状态
   const [statsDownloading, setStatsDownloading] = useState(false);
@@ -169,13 +177,13 @@ export default function AdminPage() {
     }
   };
 
-  const handleBatchDownload = async (type: MaterialType, ids?: number[]) => {
+  const handleBatchDownload = async (type: BatchDownloadType, ids?: number[]) => {
     const label = TYPE_LABEL[type];
-    const countKey = type === 'img' ? 'img_count' : 'video_count';
+    const countKeys = COUNT_KEYS[type];
     const targetIds = ids ?? filteredPoints.map((p) => p.id);
     const pool = points.filter((p) => targetIds.includes(p.id));
-    const pointCount = pool.filter((p) => p[countKey] > 0).length;
-    const fileCount = pool.reduce((sum, p) => sum + p[countKey], 0);
+    const pointCount = pool.filter((p) => countKeys.some((k) => p[k] > 0)).length;
+    const fileCount = pool.reduce((sum, p) => sum + countKeys.reduce((s, k) => s + p[k], 0), 0);
     const scopeLabel = ids && ids.length > 0 ? '选中点位' : '当前筛选';
 
     if (fileCount === 0) {
