@@ -20,7 +20,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "test:ui": "vitest --ui"
+    "test:ui": "vitest --ui",
+    "test:ui-smoke": "node tests/ui-smoke.mjs"
   },
   "dependencies": {
     "archiver": "^7.0.1",

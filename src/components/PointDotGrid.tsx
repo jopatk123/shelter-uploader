@@ -101,15 +101,15 @@ export default function PointDotGrid({
         </div>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-base-300">
           <span className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-full bg-status-green"></span>
+            <span className="w-3 h-3 rounded-full bg-status-green"></span>
             全部完成
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-full bg-status-yellow"></span>
+            <span className="w-3 h-3 rounded-full bg-status-yellow"></span>
             部分完成
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-full bg-status-red"></span>
+            <span className="w-3 h-3 rounded-full bg-status-red"></span>
             未开始
           </span>
         </div>
@@ -202,7 +202,8 @@ export default function PointDotGrid({
                   boxShadow: isHighlighted ? '0 0 6px #00d4ff66' : STATE_GLOW[state],
                 }}
               />
-              <span className="absolute inset-0 flex items-center justify-center text-[10px] lg:text-[8px] font-mono text-base-900 font-bold pointer-events-none">
+              {/* 编号随圆点一起放大：原先 8~10px 在 26px 的圆点里几乎不可读 */}
+              <span className="pointer-events-none absolute inset-0 flex items-center justify-center font-mono text-[13px] font-bold text-base-900">
                 {p.id}
               </span>
 

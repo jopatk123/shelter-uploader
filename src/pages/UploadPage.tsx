@@ -1,7 +1,7 @@
 /**
  * 作业人员上传页面
  */
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import PointDotGrid from '@/components/PointDotGrid';
 import ImageUploadPanel from '@/components/ImageUploadPanel';
 import VideoUploadPanel from '@/components/VideoUploadPanel';
@@ -20,6 +20,8 @@ export default function UploadPage() {
   const [showOverLimit, setShowOverLimit] = useState(false);
   const [showNoGpsWarning, setShowNoGpsWarning] = useState(false);
   const [statsDownloading, setStatsDownloading] = useState(false);
+  // 上传区的空状态 CTA 需要把焦点交还给点位选择器
+  const selectRef = useRef<HTMLSelectElement>(null);
 
   const loadPoints = useCallback(async () => {
     try {
@@ -59,9 +61,6 @@ export default function UploadPage() {
   }, [selectedId, loadMaterials]);
 
   const selectedPoint = points.find((p) => p.id === selectedId) || null;
-  const completedCount = points.filter((p) => p.uploaded_count > 0).length;
-  const completedPercent =
-    points.length > 0 ? Math.round((completedCount / points.length) * 100) : 0;
   // 视频上限取自后端运行配置，避免与 VIDEO_MAX_SIZE_MB 脱节
   const videoMaxSizeMB = getRuntimeConfig().videoMaxSizeMB;
 
@@ -72,6 +71,14 @@ export default function UploadPage() {
 
   // 素材墙内删除/替换成功后的刷新（与上传完成同源）
   const handleMaterialsChanged = handleUploadComplete;
+
+  /** 上传区空状态 CTA：滚动到点位选择器并聚焦 */
+  const handleRequestPoint = useCallback(() => {
+    const select = selectRef.current;
+    if (!select) return;
+    select.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    select.focus({ preventScroll: true });
+  }, []);
 
   const handleDownloadStats = async () => {
     setStatsDownloading(true);
@@ -103,15 +110,13 @@ export default function UploadPage() {
               <h1 className="font-mono text-sm sm:text-base text-base-100 truncate">
                 福州沿海码头避风点点位素材上传系统
               </h1>
-              <p className="text-xs text-base-400">
-                福州沿海码头避风点 · {points.length}个点位 ·{' '}
-                <span className="text-accent font-bold">{completedPercent}%</span> 已完成
-              </p>
+              {/* 完成百分比由点阵区独家承担，此处不再重复展示同一数字 */}
+              <p className="text-xs text-base-400">福州沿海码头避风点 · {points.length} 个点位</p>
             </div>
           </div>
           <a
             href="/admin"
-            className="shrink-0 text-xs text-base-300 hover:text-accent transition-colors font-mono border border-base-600 px-3 py-1.5 rounded"
+            className="shrink-0 text-xs text-base-300 hover:text-accent transition-colors font-mono border border-base-600 px-3 py-1.5 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
           >
             管理后台 →
           </a>
@@ -128,20 +133,21 @@ export default function UploadPage() {
           onDownloadStats={handleDownloadStats}
         />
 
-        {/* 主操作区 */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6 mt-4 lg:mt-6">
-          {/* 左侧：点位选择 */}
-          <div className="lg:col-span-1">
+        {/* 主操作区：点位信息与上传区近似 1:1，上传是主线任务，不再被挤成窄栏 */}
+        <div className="grid grid-cols-1 gap-4 lg:mt-6 lg:grid-cols-2 lg:gap-6">
+          {/* 左侧：点位选择 + 已上传素材 */}
+          <div className="mt-4 min-w-0 space-y-4 lg:mt-0">
             <div className="bg-base-700 border border-base-600 rounded-lg p-5">
               <h3 className="font-mono text-sm text-base-100 mb-4 flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-accent"></span>
-                选择点位
+                当前点位
               </h3>
 
               <select
+                ref={selectRef}
                 value={selectedId ?? ''}
                 onChange={(e) => setSelectedId(e.target.value ? Number(e.target.value) : null)}
-                className="w-full bg-base-800 border border-base-600 rounded px-3 py-2.5 text-base sm:text-sm text-base-100 focus:border-accent focus:outline-none font-mono"
+                className="w-full bg-base-800 border border-base-600 rounded px-3 py-2.5 text-base sm:text-sm text-base-100 focus:border-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 font-mono"
               >
                 <option value="">-- 请选择点位 --</option>
                 {points.map((p) => (
@@ -153,41 +159,48 @@ export default function UploadPage() {
               </select>
 
               {selectedPoint ? (
-                <div className="mt-4 p-4 bg-base-800 border border-base-600 rounded space-y-2 animate-fade-in">
-                  <div className="flex items-center justify-between">
+                <div className="mt-4 p-4 bg-base-800 border border-base-600 rounded animate-fade-in">
+                  <div className="flex items-center justify-between gap-2">
                     <span className="font-mono text-accent text-lg">#{selectedPoint.id}</span>
-                    <span className="text-xs text-base-400 font-mono">{selectedPoint.city}</span>
+                    <span className="text-xs text-base-400 font-mono truncate">
+                      {selectedPoint.name}
+                    </span>
                   </div>
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <div>
-                      <span className="text-base-400">区县</span>
-                      <p className="text-base-100">{selectedPoint.district}</p>
+                  {/* 三列紧凑排布：原先两列让卡片偏高，挤占了上传区的纵向空间 */}
+                  <dl className="mt-3 grid grid-cols-3 gap-x-3 gap-y-2 text-xs">
+                    <div className="min-w-0">
+                      <dt className="text-base-400">区县</dt>
+                      <dd className="text-base-100 truncate">{selectedPoint.district}</dd>
                     </div>
-                    <div>
-                      <span className="text-base-400">乡镇</span>
-                      <p className="text-base-100">{selectedPoint.township || '—'}</p>
+                    <div className="min-w-0">
+                      <dt className="text-base-400">乡镇</dt>
+                      <dd className="text-base-100 truncate">{selectedPoint.township || '—'}</dd>
                     </div>
-                    <div>
-                      <span className="text-base-400">船管站</span>
-                      <p className="text-base-100">{selectedPoint.station || '—'}</p>
+                    <div className="min-w-0">
+                      <dt className="text-base-400">船管站</dt>
+                      <dd className="text-base-100 truncate">{selectedPoint.station || '—'}</dd>
                     </div>
-                    <div>
-                      <span className="text-base-400">可停泊数量</span>
-                      <p className="text-base-100">{selectedPoint.capacity || '—'}</p>
+                    <div className="min-w-0">
+                      <dt className="text-base-400">可停泊</dt>
+                      <dd className="text-base-100 truncate">{selectedPoint.capacity || '—'}</dd>
                     </div>
-                    <div>
-                      <span className="text-base-400">经度</span>
-                      <p className="text-base-100 font-mono">{selectedPoint.lon.toFixed(6)}</p>
+                    <div className="min-w-0">
+                      <dt className="text-base-400">经度</dt>
+                      <dd className="text-base-100 font-mono truncate">
+                        {selectedPoint.lon.toFixed(6)}
+                      </dd>
                     </div>
-                    <div>
-                      <span className="text-base-400">纬度</span>
-                      <p className="text-base-100 font-mono">{selectedPoint.lat.toFixed(6)}</p>
+                    <div className="min-w-0">
+                      <dt className="text-base-400">纬度</dt>
+                      <dd className="text-base-100 font-mono truncate">
+                        {selectedPoint.lat.toFixed(6)}
+                      </dd>
                     </div>
-                  </div>
-                  <div className="pt-2 border-t border-base-600 flex flex-wrap gap-x-4 gap-y-1 text-xs">
+                  </dl>
+                  <div className="pt-2 mt-1 border-t border-base-600 flex flex-wrap gap-x-4 gap-y-1 text-xs">
                     <span
                       className={
-                        selectedPoint.img_count > 0 ? 'text-status-green' : 'text-status-red'
+                        selectedPoint.img_count > 0 ? 'text-status-green' : 'text-base-400'
                       }
                     >
                       图片:{' '}
@@ -197,7 +210,7 @@ export default function UploadPage() {
                     </span>
                     <span
                       className={
-                        selectedPoint.video_count > 0 ? 'text-status-green' : 'text-status-red'
+                        selectedPoint.video_count > 0 ? 'text-status-green' : 'text-base-400'
                       }
                     >
                       视频:{' '}
@@ -208,38 +221,46 @@ export default function UploadPage() {
                   </div>
                 </div>
               ) : (
-                <div className="mt-4 p-4 bg-base-800/50 border border-dashed border-base-600 rounded text-center text-sm text-base-400">
-                  必须先选择点位才能上传素材
-                </div>
-              )}
-
-              {/* 素材墙 */}
-              {selectedId !== null && (
-                <div className="mt-4">
-                  <MaterialWall
-                    pointId={selectedId}
-                    materials={materials}
-                    loading={materialsLoading}
-                    onChanged={handleMaterialsChanged}
-                  />
+                <div className="mt-4 p-4 bg-base-800/50 border border-dashed border-base-600 rounded text-center">
+                  <p className="text-sm text-base-300">尚未选择点位</p>
+                  <p className="mt-1 text-xs text-base-400">可点击上方点阵中的编号直接选择</p>
+                  <button
+                    type="button"
+                    onClick={handleRequestPoint}
+                    className="mt-3 inline-flex min-h-[36px] items-center rounded border border-accent/50 px-3 py-2 text-xs font-mono text-accent transition-colors hover:bg-accent/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+                  >
+                    选择点位
+                  </button>
                 </div>
               )}
             </div>
+
+            {/* 素材墙：自身即卡片，不再嵌套一层同色边框 */}
+            {selectedId !== null && (
+              <MaterialWall
+                pointId={selectedId}
+                materials={materials}
+                loading={materialsLoading}
+                onChanged={handleMaterialsChanged}
+              />
+            )}
           </div>
 
           {/* 右侧：上传区（图片 / 视频，均不限数量） */}
-          <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="min-w-0 grid grid-cols-1 content-start gap-4 2xl:grid-cols-2 lg:gap-6">
             <ImageUploadPanel
               key={`${selectedId ?? 'none'}-img`}
               pointId={selectedId}
               onUploadComplete={handleUploadComplete}
               onMissingGps={() => setShowNoGpsWarning(true)}
+              onRequestPoint={handleRequestPoint}
             />
             <VideoUploadPanel
               key={`${selectedId ?? 'none'}-video`}
               pointId={selectedId}
               onUploadComplete={handleUploadComplete}
               onOverLimit={() => setShowOverLimit(true)}
+              onRequestPoint={handleRequestPoint}
             />
           </div>
         </div>

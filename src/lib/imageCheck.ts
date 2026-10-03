@@ -342,7 +342,10 @@ async function loadBitmapForSampling(file: File): Promise<ImageBitmap | HTMLImag
 }
 
 /** 能读到文件头时按长边 64 像素解码，只证明文件可打开 */
-async function decodeForReadableCheck(file: File, headerSize: ImageSize | null): Promise<ImageBitmap> {
+async function decodeForReadableCheck(
+  file: File,
+  headerSize: ImageSize | null,
+): Promise<ImageBitmap> {
   if (!headerSize) return createImageBitmap(file);
 
   const longEdge = Math.max(headerSize.width, headerSize.height);

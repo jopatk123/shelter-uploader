@@ -4,7 +4,7 @@
 
 ## 功能
 
-- **作业上传页（/）**：无密码公开访问，选择点位后上传图片/视频；素材墙支持图片缩略图预览与灯箱查看、视频在线播放（Range 流式），并支持对已上传素材的**删除**（确认弹窗防误删）与**替换**（先传新素材、成功后删旧素材，任一步失败均不丢失旧素材）
+- **作业上传页（/）**：无密码公开访问，选择点位后通过点击或拖放上传图片/视频；素材墙支持图片缩略图预览与灯箱查看、视频在线播放（Range 流式），并支持对已上传素材的**删除**（确认弹窗防误删）与**替换**（先传新素材、成功后删旧素材，任一步失败均不丢失旧素材）
 - **管理后台（/admin）**：密码校验进入，查看/下载/删除素材，图片预览与视频在线播放
   - 批量下载：按素材类型打包下载（支持选中点位或全部点位）
   - 统计表格导出：一键导出 CSV 统计表（含名称、区县、乡镇、船管站、经纬度、图片数/视频数、上传状态等）
@@ -54,6 +54,8 @@ pnpm dev
 
 ## 测试
 
+本仓库测试分三层，前两者由 Vitest 统一执行（Node 环境），第三层为手动脚本。
+
 ```bash
 # 运行单元 + 接口测试
 pnpm test
@@ -69,6 +71,27 @@ pnpm check
 
 # 格式化
 pnpm format
+```
+
+### 上传页 UI 冒烟（手动，需本机已启动前后端）
+
+前端组件目前**尚未接入 jsdom / testing-library**，无法在 Vitest 中渲染。
+`tests/ui-smoke.mjs` 用 CDP 驱动本机 headless Chrome，对上传页容易被后续改动破坏的 UI 契约做回归：
+
+- 未选择点位时上传区是引导式空状态（含 CTA），而非整块半透明
+- 上传限制只渲染一次（徽标区），不在面板顶部与拖放区重复
+- 文件输入可被键盘聚焦（视觉隐藏而非 `display:none`），拖放入口存在
+- 点位信息区与上传区为近似 1:1 双栏
+- 素材墙默认展开、点击标题可折叠
+- 顶栏不再与点位总览重复展示同一个完成百分比
+
+```bash
+# 前提：前端 http://localhost:5173 与后端 http://localhost:3001 已在运行
+pnpm test:ui-smoke
+
+# 自定义地址 / 浏览器路径
+BASE_URL=http://127.0.0.1:5173 pnpm test:ui-smoke
+CHROME_PATH=/path/to/chrome pnpm test:ui-smoke
 ```
 
 ## Docker 部署
@@ -164,12 +187,15 @@ api/                  # 后端 Express 应用
 └── server.ts         # 本地开发服务器入口
 
 src/                  # 前端 React 应用
-├── components/       # 组件
-├── lib/              # API 客户端、上传与图片校验工具
+├── components/       # 组件（UploadDropzone / UploadQueue / LimitBadge 为图片与视频面板共用）
+├── lib/              # API 客户端、上传与图片校验工具、队列汇总派生逻辑
 ├── pages/            # 页面（UploadPage / AdminPage）
 └── types.ts          # 类型定义
 
 tests/                # 测试用例（Vitest）
+├── api/              # 接口测试
+├── unit/             # 纯函数单元测试
+└── ui-smoke.mjs      # 上传页 UI 冒烟（CDP 驱动 headless Chrome，手动执行）
 ```
 
 ## CI/CD

@@ -2,14 +2,15 @@
  * 图片上传面板
  * 支持 jpg/png/webp，不限上传数量、不限尺寸规格（像素比例）
  * 超过压缩目标（默认 500KB，由后端 IMAGE_COMPRESS_TARGET_KB 下发）的图片在前端自动压缩到
- * 目标以内（大图先降到安全分辨率，EXIF 放得下才保留）；支持一次多选，队列串行上传
+ * 目标以内（大图先降到安全分辨率，EXIF 放得下才保留）；支持点击多选与拖放，队列串行上传
  */
 import { useState, useRef, useEffect, useCallback } from 'react';
-import ProgressBar from '@/components/ProgressBar';
+import UploadDropzone from '@/components/UploadDropzone';
+import UploadQueue, { type QueueItemView } from '@/components/UploadQueue';
+import LimitBadge from '@/components/LimitBadge';
 import { uploadFile, generateFileId, type UploadProgress } from '@/lib/upload';
 import { compressImageIfNeeded, shouldCompress } from '@/lib/imageCompress';
 import { getRuntimeConfig } from '@/lib/runtimeConfig';
-import { formatFileSize } from '@/lib/utils';
 import {
   checkImageReadable,
   hasGpsExif,
@@ -25,6 +26,8 @@ interface Props {
    * （仅对 JPEG 文件检测；用于提示用户上传相机/手机原图）
    */
   onMissingGps?: () => void;
+  /** 未选择点位时，空状态 CTA 的回调（由页面把焦点交给点位选择器） */
+  onRequestPoint: () => void;
 }
 
 /** 上传队列条目 */
@@ -45,23 +48,24 @@ function nextKey(): string {
   return `img_${Date.now()}_${seqCounter}`;
 }
 
-export default function ImageUploadPanel({ pointId, onUploadComplete, onMissingGps }: Props) {
+export default function ImageUploadPanel({
+  pointId,
+  onUploadComplete,
+  onMissingGps,
+  onRequestPoint,
+}: Props) {
   // 压缩目标取自后端运行配置，避免提示文案与 IMAGE_COMPRESS_TARGET_KB 脱节
   const imageCompressTargetKB = getRuntimeConfig().imageCompressTargetKB;
-  const inputRef = useRef<HTMLInputElement>(null);
   const [items, setItems] = useState<QueueItem[]>([]);
-  const [successCount, setSuccessCount] = useState(0);
   // 队列处理锁：保证同一时刻只有一张图在上传（压缩/上传串行，避免 canvas 内存峰值）
   const processingRef = useRef(false);
   // 供上传闭包读取最新 pointId（切换点位时队列已重置，不会串点位）
   const pointIdRef = useRef(pointId);
   pointIdRef.current = pointId;
 
-  // 切换点位时重置面板状态
+  // 切换点位时重置面板状态（父组件亦会通过 key 重挂载，此处保证面板自包含）
   useEffect(() => {
     setItems([]);
-    setSuccessCount(0);
-    if (inputRef.current) inputRef.current.value = '';
   }, [pointId]);
 
   const disabled = pointId === null;
@@ -97,7 +101,6 @@ export default function ImageUploadPanel({ pointId, onUploadComplete, onMissingG
         );
 
         patchItem(item.key, { status: 'done', progress: null });
-        setSuccessCount((c) => c + 1);
         onUploadComplete();
 
         // 仅 JPEG 且不含 GPS 时提示；PNG/WEBP 返回 null，不弹窗
@@ -129,8 +132,8 @@ export default function ImageUploadPanel({ pointId, onUploadComplete, onMissingG
     })();
   }, [items, uploadOne]);
 
-  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files ?? []);
+  /** 点击选择与拖放共用同一入口：校验通过者入队，被拦截者落成失败条目并写明原因 */
+  const handleFiles = async (files: File[]) => {
     if (files.length === 0) return;
 
     const accepted: QueueItem[] = [];
@@ -187,8 +190,6 @@ export default function ImageUploadPanel({ pointId, onUploadComplete, onMissingG
     }
 
     setItems((prev) => [...prev, ...rejected, ...accepted]);
-    setSuccessCount(0);
-    if (inputRef.current) inputRef.current.value = '';
   };
 
   const retryItem = (key: string) => {
@@ -199,130 +200,51 @@ export default function ImageUploadPanel({ pointId, onUploadComplete, onMissingG
     setItems((prev) => prev.filter((it) => it.key !== key));
   };
 
-  const doneCount = items.filter((it) => it.status === 'done').length;
-  const errorCount = items.filter((it) => it.status === 'error').length;
+  const clearFinished = () => {
+    setItems((prev) => prev.filter((it) => it.status !== 'done'));
+  };
+
+  const queueItems: QueueItemView[] = items.map((it) => ({
+    key: it.key,
+    name: it.file.name,
+    size: it.file.size,
+    status: it.status,
+    progress: it.progress,
+    error: it.error,
+  }));
 
   return (
-    <div
-      className={`bg-base-700 border border-base-600 rounded-lg p-5 ${disabled ? 'opacity-50' : ''}`}
-    >
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="font-mono text-sm text-base-100 flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full bg-accent"></span>
-          图片上传
-        </h3>
-        {doneCount > 0 && (
-          <span className="text-xs text-status-green font-mono">本批已上传 {doneCount} 张</span>
-        )}
+    <div className="flex flex-col rounded-lg border border-base-600 bg-base-700 p-5">
+      <h3 className="mb-3 flex items-center gap-2 font-mono text-sm text-base-100">
+        <span className="h-2 w-2 rounded-full bg-accent"></span>
+        图片上传
+      </h3>
+
+      {/* 限制条件压缩为徽标：原先面板顶部与虚线框内各写一整行，重复且难扫读 */}
+      <div className="mb-3 flex flex-wrap gap-1.5">
+        <LimitBadge>JPG / PNG / WEBP</LimitBadge>
+        <LimitBadge>自动压缩 ≤ {imageCompressTargetKB}KB</LimitBadge>
+        <LimitBadge tone="warn">纯黑 ≤ {Math.round(MAX_BLACK_RATIO * 100)}%</LimitBadge>
       </div>
 
-      <div className="text-xs text-base-400 mb-3 font-mono">
-        格式: JPG / PNG / WEBP · 不限数量与规格 · 自动压缩至 {imageCompressTargetKB}KB 以内 ·
-        纯黑像素 ≤ 10%
-      </div>
-
-      <input
-        ref={inputRef}
-        type="file"
-        accept=".jpg,.jpeg,.png,.webp"
-        multiple
-        onChange={handleFileSelect}
-        disabled={disabled}
-        className="hidden"
+      <UploadDropzone
         id="image-input"
+        accept=".jpg,.jpeg,.png,.webp"
+        disabled={disabled}
+        title="拖拽到此处，或点击选择"
+        hint="不限张数与规格 · 支持多选"
+        onRequestPoint={onRequestPoint}
+        onFiles={handleFiles}
       />
 
-      <label
-        htmlFor={disabled ? '' : 'image-input'}
-        className={`
-          block border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-all
-          ${
-            disabled
-              ? 'border-base-600 cursor-not-allowed'
-              : 'border-base-500 hover:border-accent hover:bg-base-600/30'
-          }
-        `}
-      >
-        <div className="text-base-300">
-          <p className="text-sm">点击选择图片（可多选）</p>
-          <p className="text-xs text-base-400 mt-1">
-            JPG / PNG / WEBP · 自动压缩至 {imageCompressTargetKB}KB 以内
-          </p>
-        </div>
-      </label>
-
-      {/* 上传队列 */}
-      {items.length > 0 && (
-        <div className="mt-4 space-y-2">
-          {items.map((item) => (
-            <div
-              key={item.key}
-              className="p-3 bg-base-800 border border-base-600 rounded text-xs font-mono"
-            >
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-base-200 truncate" title={item.file.name}>
-                  {item.file.name}
-                </span>
-                <span className="flex items-center gap-2 shrink-0">
-                  <span className="text-base-400">{formatFileSize(item.file.size)}</span>
-                  {item.status === 'pending' && <span className="text-base-400">排队中</span>}
-                  {item.status === 'uploading' && (
-                    <span className="text-accent flex items-center gap-1">
-                      <span className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin"></span>
-                      上传中
-                    </span>
-                  )}
-                  {item.status === 'done' && <span className="text-status-green">✓ 完成</span>}
-                  {item.status === 'error' && (
-                    <>
-                      <span className="text-status-red">✗ 失败</span>
-                      <button
-                        onClick={() => retryItem(item.key)}
-                        className="px-2 py-0.5 bg-status-red/20 text-status-red rounded hover:bg-status-red/30 transition-colors"
-                      >
-                        重试
-                      </button>
-                    </>
-                  )}
-                  {(item.status === 'pending' || item.status === 'error') && (
-                    <button
-                      onClick={() => removeItem(item.key)}
-                      className="px-2 py-0.5 text-base-400 hover:text-base-100 transition-colors"
-                      title="移除该条目"
-                    >
-                      ✕
-                    </button>
-                  )}
-                </span>
-              </div>
-              {item.status === 'uploading' && item.progress && (
-                <div className="mt-2">
-                  <ProgressBar
-                    percent={item.progress.percent}
-                    label={item.progress.message}
-                    variant={item.progress.phase === 'compressing' ? 'compress' : 'default'}
-                  />
-                </div>
-              )}
-              {item.status === 'error' && item.error && (
-                <p className="mt-1 text-status-red break-all">{item.error}</p>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* 汇总状态 */}
-      {successCount > 0 && (
-        <div className="mt-4 p-3 bg-status-green/10 border border-status-green/30 rounded text-sm text-status-green">
-          图片上传成功（本批 {successCount} 张）
-        </div>
-      )}
-      {errorCount > 0 && successCount === 0 && items.every((it) => it.status !== 'uploading') && (
-        <div className="mt-4 p-3 bg-status-red/10 border border-status-red/30 rounded text-sm text-status-red">
-          本批图片全部失败（{errorCount} 张），请检查后重试
-        </div>
-      )}
+      <UploadQueue
+        items={queueItems}
+        unit="张"
+        onRetry={retryItem}
+        onRemove={removeItem}
+        onClearFinished={clearFinished}
+        progressVariantFor={(phase) => (phase === 'compressing' ? 'compress' : 'default')}
+      />
     </div>
   );
 }

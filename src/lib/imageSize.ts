@@ -71,11 +71,7 @@ function readJpeg(bytes: Uint8Array): ImageSize | null {
     }
     if (marker === 0xda) break;
     const isSof =
-      marker >= 0xc0 &&
-      marker <= 0xcf &&
-      marker !== 0xc4 &&
-      marker !== 0xc8 &&
-      marker !== 0xcc;
+      marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc;
     if (isSof) {
       if (offset + 9 >= bytes.length) return null;
       const height = readU16BE(bytes, offset + 5);
@@ -133,7 +129,10 @@ function readU16LE(bytes: Uint8Array, offset: number): number {
 
 function readU32BE(bytes: Uint8Array, offset: number): number {
   return (
-    ((bytes[offset] << 24) | (bytes[offset + 1] << 16) | (bytes[offset + 2] << 8) | bytes[offset + 3]) >>>
+    ((bytes[offset] << 24) |
+      (bytes[offset + 1] << 16) |
+      (bytes[offset + 2] << 8) |
+      bytes[offset + 3]) >>>
     0
   );
 }

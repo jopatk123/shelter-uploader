@@ -2,13 +2,14 @@
  * 视频上传面板
  * 仅 mp4，不限上传数量，单文件上限 80MB（可通过后端环境变量 VIDEO_MAX_SIZE_MB 配置）
  * 视频时长必须 ≥ 10 秒，低于 10 秒不允许上传
- * 不做任何压缩，分片上传；支持一次多选，队列串行上传
+ * 不做任何压缩，分片上传；支持点击多选与拖放，队列串行上传
  */
 import { useState, useRef, useEffect, useCallback } from 'react';
-import ProgressBar from '@/components/ProgressBar';
+import UploadDropzone from '@/components/UploadDropzone';
+import UploadQueue, { type QueueItemView } from '@/components/UploadQueue';
+import LimitBadge from '@/components/LimitBadge';
 import { uploadFile, generateFileId, type UploadProgress } from '@/lib/upload';
 import { checkVideoDuration, MIN_VIDEO_DURATION } from '@/lib/videoCheck';
-import { formatFileSize } from '@/lib/utils';
 import { getRuntimeConfig } from '@/lib/runtimeConfig';
 
 interface Props {
@@ -16,6 +17,8 @@ interface Props {
   onUploadComplete: () => void;
   /** 有视频超过大小上限时触发（弹出压缩指引） */
   onOverLimit: () => void;
+  /** 未选择点位时，空状态 CTA 的回调（由页面把焦点交给点位选择器） */
+  onRequestPoint: () => void;
 }
 
 /** 上传队列条目 */
@@ -35,21 +38,22 @@ function nextKey(): string {
   return `video_${Date.now()}_${seqCounter}`;
 }
 
-export default function VideoUploadPanel({ pointId, onUploadComplete, onOverLimit }: Props) {
-  const inputRef = useRef<HTMLInputElement>(null);
+export default function VideoUploadPanel({
+  pointId,
+  onUploadComplete,
+  onOverLimit,
+  onRequestPoint,
+}: Props) {
   const [items, setItems] = useState<QueueItem[]>([]);
-  const [successCount, setSuccessCount] = useState(0);
   // 队列处理锁：保证同一时刻只有一个视频在上传
   const processingRef = useRef(false);
   // 供上传闭包读取最新 pointId（切换点位时队列已重置，不会串点位）
   const pointIdRef = useRef(pointId);
   pointIdRef.current = pointId;
 
-  // 切换点位时重置面板状态
+  // 切换点位时重置面板状态（父组件亦会通过 key 重挂载，此处保证面板自包含）
   useEffect(() => {
     setItems([]);
-    setSuccessCount(0);
-    if (inputRef.current) inputRef.current.value = '';
   }, [pointId]);
 
   const disabled = pointId === null;
@@ -75,7 +79,6 @@ export default function VideoUploadPanel({ pointId, onUploadComplete, onOverLimi
         );
 
         patchItem(item.key, { status: 'done', progress: null });
-        setSuccessCount((c) => c + 1);
         onUploadComplete();
       } catch (err) {
         patchItem(item.key, {
@@ -103,8 +106,8 @@ export default function VideoUploadPanel({ pointId, onUploadComplete, onOverLimi
     })();
   }, [items, uploadOne]);
 
-  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files ?? []);
+  /** 点击选择与拖放共用同一入口：校验通过者入队，被拦截者落成失败条目并写明原因 */
+  const handleFiles = async (files: File[]) => {
     if (files.length === 0) return;
 
     const accepted: QueueItem[] = [];
@@ -165,8 +168,6 @@ export default function VideoUploadPanel({ pointId, onUploadComplete, onOverLimi
     }
 
     setItems((prev) => [...prev, ...rejected, ...accepted]);
-    setSuccessCount(0);
-    if (inputRef.current) inputRef.current.value = '';
     if (overLimit) onOverLimit();
   };
 
@@ -178,123 +179,51 @@ export default function VideoUploadPanel({ pointId, onUploadComplete, onOverLimi
     setItems((prev) => prev.filter((it) => it.key !== key));
   };
 
-  const doneCount = items.filter((it) => it.status === 'done').length;
-  const errorCount = items.filter((it) => it.status === 'error').length;
+  const clearFinished = () => {
+    setItems((prev) => prev.filter((it) => it.status !== 'done'));
+  };
+
+  const queueItems: QueueItemView[] = items.map((it) => ({
+    key: it.key,
+    name: it.file.name,
+    size: it.file.size,
+    status: it.status,
+    progress: it.progress,
+    error: it.error,
+  }));
 
   return (
-    <div
-      className={`bg-base-700 border border-base-600 rounded-lg p-5 ${disabled ? 'opacity-50' : ''}`}
-    >
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="font-mono text-sm text-base-100 flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full bg-accent"></span>
-          视频上传
-        </h3>
-        {doneCount > 0 && (
-          <span className="text-xs text-status-green font-mono">本批已上传 {doneCount} 个</span>
-        )}
+    <div className="flex flex-col rounded-lg border border-base-600 bg-base-700 p-5">
+      <h3 className="mb-3 flex items-center gap-2 font-mono text-sm text-base-100">
+        <span className="h-2 w-2 rounded-full bg-accent"></span>
+        视频上传
+      </h3>
+
+      {/* 限制条件压缩为徽标：原先面板顶部与虚线框内各写一整行，重复且难扫读 */}
+      <div className="mb-3 flex flex-wrap gap-1.5">
+        <LimitBadge>MP4</LimitBadge>
+        <LimitBadge>单个 ≤ {videoMaxSizeMB}MB</LimitBadge>
+        <LimitBadge>时长 ≥ {MIN_VIDEO_DURATION} 秒</LimitBadge>
       </div>
 
-      <div className="text-xs text-base-400 mb-3 font-mono">
-        格式: MP4 · 不限数量 · 单文件上限 {videoMaxSizeMB}MB · 时长 ≥ 10秒
-      </div>
-
-      <input
-        ref={inputRef}
-        type="file"
-        accept=".mp4,video/mp4"
-        multiple
-        onChange={handleFileSelect}
-        disabled={disabled}
-        className="hidden"
+      <UploadDropzone
         id="video-input"
+        accept=".mp4,video/mp4"
+        disabled={disabled}
+        title="拖拽到此处，或点击选择"
+        hint="不限个数 · 支持多选"
+        onRequestPoint={onRequestPoint}
+        onFiles={handleFiles}
       />
 
-      <label
-        htmlFor={disabled ? '' : 'video-input'}
-        className={`
-          block border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-all
-          ${
-            disabled
-              ? 'border-base-600 cursor-not-allowed'
-              : 'border-base-500 hover:border-accent hover:bg-base-600/30'
-          }
-        `}
-      >
-        <div className="text-base-300">
-          <p className="text-sm">点击选择视频（可多选）</p>
-          <p className="text-xs text-base-400 mt-1">MP4 · 最大 {videoMaxSizeMB}MB · ≥ 10秒</p>
-        </div>
-      </label>
-
-      {/* 上传队列 */}
-      {items.length > 0 && (
-        <div className="mt-4 space-y-2">
-          {items.map((item) => (
-            <div
-              key={item.key}
-              className="p-3 bg-base-800 border border-base-600 rounded text-xs font-mono"
-            >
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-base-200 truncate" title={item.file.name}>
-                  {item.file.name}
-                </span>
-                <span className="flex items-center gap-2 shrink-0">
-                  <span className="text-base-400">{formatFileSize(item.file.size)}</span>
-                  {item.status === 'pending' && <span className="text-base-400">排队中</span>}
-                  {item.status === 'uploading' && (
-                    <span className="text-accent flex items-center gap-1">
-                      <span className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin"></span>
-                      上传中
-                    </span>
-                  )}
-                  {item.status === 'done' && <span className="text-status-green">✓ 完成</span>}
-                  {item.status === 'error' && (
-                    <>
-                      <span className="text-status-red">✗ 失败</span>
-                      <button
-                        onClick={() => retryItem(item.key)}
-                        className="px-2 py-0.5 bg-status-red/20 text-status-red rounded hover:bg-status-red/30 transition-colors"
-                      >
-                        重试
-                      </button>
-                    </>
-                  )}
-                  {(item.status === 'pending' || item.status === 'error') && (
-                    <button
-                      onClick={() => removeItem(item.key)}
-                      className="px-2 py-0.5 text-base-400 hover:text-base-100 transition-colors"
-                      title="移除该条目"
-                    >
-                      ✕
-                    </button>
-                  )}
-                </span>
-              </div>
-              {item.status === 'uploading' && item.progress && (
-                <div className="mt-2">
-                  <ProgressBar percent={item.progress.percent} label={item.progress.message} />
-                </div>
-              )}
-              {item.status === 'error' && item.error && (
-                <p className="mt-1 text-status-red break-all">{item.error}</p>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* 汇总状态 */}
-      {successCount > 0 && (
-        <div className="mt-4 p-3 bg-status-green/10 border border-status-green/30 rounded text-sm text-status-green">
-          视频上传成功（本批 {successCount} 个）
-        </div>
-      )}
-      {errorCount > 0 && successCount === 0 && items.every((it) => it.status !== 'uploading') && (
-        <div className="mt-4 p-3 bg-status-red/10 border border-status-red/30 rounded text-sm text-status-red">
-          本批视频全部失败（{errorCount} 个），请检查后重试
-        </div>
-      )}
+      <UploadQueue
+        items={queueItems}
+        unit="个"
+        onRetry={retryItem}
+        onRemove={removeItem}
+        onClearFinished={clearFinished}
+        progressVariantFor={() => 'default'}
+      />
     </div>
   );
 }

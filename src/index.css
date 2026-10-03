@@ -1,11 +1,11 @@
-@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Noto+Sans+SC:wght@400;500;700&display=swap");
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Noto+Sans+SC:wght@400;500;700&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-  font-family: "Noto Sans SC", system-ui, sans-serif;
+  font-family: 'Noto Sans SC', system-ui, sans-serif;
   line-height: 1.6;
   font-weight: 400;
   color-scheme: dark;
@@ -51,17 +51,17 @@ body {
   transition: width 0.3s ease;
 }
 
-/* 点阵：手机 10 列便于点选，桌面恢复 47 列总览 */
+/*
+ * 点阵：列数不再写死，改由「圆点最小直径」反推，容器多宽就放得下几列。
+ * 这样做的原因：原先手机 10 列 / 桌面 47 列虽然能塞下 141 个点，但圆点被压到
+ * 20~26px（越宽的屏塞的列越多，圆点反而越小），编号只有 8~10px，既看不清也点不准。
+ * 换成 36px 下限后，列数由容器宽度自行推导，圆点直径稳定在 37~39px 左右，
+ * 约为原 47 列布局在 1280~1600 屏下的 1.4~1.9 倍，整体接近 1.5 倍。
+ */
 .point-dot-grid {
   display: grid;
   gap: 0.375rem;
-  grid-template-columns: repeat(10, minmax(0, 1fr));
-}
-
-@media (min-width: 1024px) {
-  .point-dot-grid {
-    grid-template-columns: repeat(47, minmax(0, 1fr));
-  }
+  grid-template-columns: repeat(auto-fill, minmax(2.25rem, 1fr));
 }
 
 /* 点阵圆点悬浮 */

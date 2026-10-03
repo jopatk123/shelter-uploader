@@ -157,7 +157,10 @@ describe('imageCompress 工具函数', () => {
       };
       const previousBitmap = globals.createImageBitmap;
       const previousCanvas = globals.OffscreenCanvas;
-      globals.createImageBitmap = async (_file: Blob, opts?: { resizeWidth?: number; resizeHeight?: number }) => ({
+      globals.createImageBitmap = async (
+        _file: Blob,
+        opts?: { resizeWidth?: number; resizeHeight?: number },
+      ) => ({
         width: opts?.resizeWidth ?? 1600,
         height: opts?.resizeHeight ?? 1200,
         close() {},

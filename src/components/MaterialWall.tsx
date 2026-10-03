@@ -39,6 +39,12 @@ export default function MaterialWall({ pointId, materials, loading, onChanged }:
   const [error, setError] = useState<string | null>(null);
   // 灯箱当前展示的图片在 images 数组中的下标
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  // 素材墙可折叠：上传是主线任务，素材核对是次要任务，折叠后左栏不再喧宾夺主
+  const [expanded, setExpanded] = useState(true);
+  // 切换点位后恢复展开，避免上一次的折叠状态让用户找不到刚上传的成果
+  useEffect(() => {
+    setExpanded(true);
+  }, [pointId]);
 
   // 替换用隐藏文件输入（图片/视频各一个）
   const imgInputRef = useRef<HTMLInputElement>(null);
@@ -201,6 +207,7 @@ export default function MaterialWall({ pointId, materials, loading, onChanged }:
 
   const busy = busyId !== null || deletingId !== null;
 
+  // 触控目标不低于 36px：作业人员多为手机端操作，原先 py-2 的小按钮容易点偏
   const renderActions = (m: MaterialItem) =>
     busyId === m.id ? (
       <ProgressBar
@@ -213,14 +220,14 @@ export default function MaterialWall({ pointId, materials, loading, onChanged }:
         <button
           onClick={() => handleReplaceClick(m)}
           disabled={busy}
-          className="flex-1 py-2 text-xs text-accent border border-accent/40 rounded hover:bg-accent/10 transition-colors disabled:opacity-50"
+          className="flex min-h-[36px] flex-1 items-center justify-center rounded border border-accent/40 px-2 py-2 text-xs text-accent transition-colors hover:bg-accent/10 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
         >
           替换
         </button>
         <button
           onClick={() => setDeleteTarget(m)}
           disabled={busy}
-          className="flex-1 py-2 text-xs text-status-red border border-status-red/30 rounded hover:bg-status-red/10 transition-colors disabled:opacity-50"
+          className="flex min-h-[36px] flex-1 items-center justify-center rounded border border-status-red/30 px-2 py-2 text-xs text-status-red transition-colors hover:bg-status-red/10 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-status-red/60"
         >
           删除
         </button>
@@ -239,84 +246,105 @@ export default function MaterialWall({ pointId, materials, loading, onChanged }:
   );
 
   return (
-    <div className="bg-base-700 border border-base-600 rounded-lg p-5">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="font-mono text-sm text-base-100 flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full bg-accent"></span>
-          已上传素材
-        </h3>
-        <span className="text-xs text-base-400 font-mono">
-          图片 {images.length} · 视频 {videos.length} · 共 {materials.length}
-        </span>
-      </div>
-
-      {error && (
-        <div className="mb-3 p-2.5 bg-status-red/10 border border-status-red/30 rounded text-xs text-status-red flex items-start justify-between gap-2">
-          <span className="break-all">{error}</span>
-          <button
-            onClick={() => setError(null)}
-            className="shrink-0 text-base-400 hover:text-base-100"
+    <section className="rounded-lg border border-base-600 bg-base-700">
+      <h3>
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+          aria-controls="material-wall-body"
+          className="flex w-full items-center justify-between gap-3 rounded-t-lg p-5 text-left transition-colors hover:bg-base-600/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60"
+        >
+          <span className="flex min-w-0 flex-wrap items-center gap-2">
+            <span className="h-2 w-2 shrink-0 rounded-full bg-accent"></span>
+            <span className="font-mono text-sm text-base-100">已上传素材</span>
+            <span className="font-mono text-xs text-base-400">
+              图片 {images.length} · 视频 {videos.length} · 共 {materials.length}
+            </span>
+          </span>
+          <span
+            className={`shrink-0 font-mono text-xs text-base-400 transition-transform duration-200 ${
+              expanded ? 'rotate-180' : ''
+            }`}
+            aria-hidden="true"
           >
-            ✕
-          </button>
-        </div>
-      )}
+            ⌄
+          </span>
+        </button>
+      </h3>
 
-      {loading ? (
-        <div className="text-center text-sm text-base-400 py-6 animate-pulse">
-          加载素材列表中...
-        </div>
-      ) : materials.length === 0 ? (
-        <div className="text-center text-sm text-base-400 py-6 border border-dashed border-base-600 rounded">
-          该点位暂无已上传素材
-        </div>
-      ) : (
-        <div className="space-y-4 max-h-[26rem] overflow-y-auto pr-1">
-          {/* 图片缩略图网格 */}
-          {images.length > 0 && (
-            <div className="grid grid-cols-2 gap-2">
-              {images.map((m, idx) => (
-                <div
-                  key={m.id}
-                  className="bg-base-800 border border-base-600 rounded overflow-hidden space-y-1.5 p-1.5"
-                >
-                  <button
-                    onClick={() => setLightboxIndex(idx)}
-                    className="block w-full aspect-square bg-base-900 rounded overflow-hidden cursor-zoom-in"
-                    title="点击查看大图"
-                  >
-                    <img
-                      src={materialFileUrl(pointId, m.id)}
-                      alt={`点位${pointId} 图片 #${m.id}`}
-                      loading="lazy"
-                      className="w-full h-full object-cover"
-                    />
-                  </button>
-                  {renderMeta(m)}
-                  {renderActions(m)}
-                </div>
-              ))}
+      {expanded && (
+        <div id="material-wall-body" className="px-5 pb-5">
+          {error && (
+            <div className="mb-3 p-2.5 bg-status-red/10 border border-status-red/30 rounded text-xs text-status-red flex items-start justify-between gap-2">
+              <span className="break-all">{error}</span>
+              <button
+                onClick={() => setError(null)}
+                className="shrink-0 text-base-400 hover:text-base-100"
+              >
+                ✕
+              </button>
             </div>
           )}
 
-          {/* 视频内嵌播放 */}
-          {videos.length > 0 && (
-            <div className="space-y-2">
-              {videos.map((m) => (
-                <div
-                  key={m.id}
-                  className="bg-base-800 border border-base-600 rounded p-2 space-y-1.5"
-                >
-                  <video
-                    controls
-                    preload="metadata"
-                    src={materialFileUrl(pointId, m.id)}
-                    className="w-full max-h-48 bg-black rounded"
-                  />
-                  {renderMeta(m)}
-                  {renderActions(m)}
+          {loading ? (
+            <div className="text-center text-sm text-base-400 py-6 animate-pulse">
+              加载素材列表中...
+            </div>
+          ) : materials.length === 0 ? (
+            <div className="text-center text-sm text-base-400 py-6 border border-dashed border-base-600 rounded">
+              该点位暂无已上传素材
+            </div>
+          ) : (
+            <div className="space-y-4 max-h-[26rem] overflow-y-auto pr-1">
+              {/* 图片缩略图网格 */}
+              {images.length > 0 && (
+                <div className="grid grid-cols-3 gap-2">
+                  {images.map((m, idx) => (
+                    <div
+                      key={m.id}
+                      className="bg-base-800 border border-base-600 rounded overflow-hidden space-y-1.5 p-1.5"
+                    >
+                      <button
+                        onClick={() => setLightboxIndex(idx)}
+                        className="block w-full aspect-square bg-base-900 rounded overflow-hidden cursor-zoom-in"
+                        title="点击查看大图"
+                      >
+                        <img
+                          src={materialFileUrl(pointId, m.id)}
+                          alt={`点位${pointId} 图片 #${m.id}`}
+                          loading="lazy"
+                          className="w-full h-full object-cover"
+                        />
+                      </button>
+                      {renderMeta(m)}
+                      {renderActions(m)}
+                    </div>
+                  ))}
                 </div>
-              ))}
+              )}
+
+              {/* 视频内嵌播放：与图片网格一致采用并排布局，一行两个 */}
+              {videos.length > 0 && (
+                <div className="grid grid-cols-2 gap-2">
+                  {videos.map((m) => (
+                    <div
+                      key={m.id}
+                      className="bg-base-800 border border-base-600 rounded p-2 space-y-1.5"
+                    >
+                      {/* 固定 16:9 画框：并排后各列宽度不同，靠宽高比保证缩略图高度一致不跳动 */}
+                      <video
+                        controls
+                        preload="metadata"
+                        src={materialFileUrl(pointId, m.id)}
+                        className="aspect-video w-full bg-black object-contain rounded"
+                      />
+                      {renderMeta(m)}
+                      {renderActions(m)}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -371,7 +399,7 @@ export default function MaterialWall({ pointId, materials, loading, onChanged }:
                     i === null ? null : (i + images.length - 1) % images.length,
                   )
                 }
-                className="px-3 py-1.5 border border-base-600 rounded hover:bg-base-700 transition-colors"
+                className="min-h-[40px] rounded border border-base-600 px-3 py-2 transition-colors hover:bg-base-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
               >
                 ← 上一张
               </button>
@@ -382,7 +410,7 @@ export default function MaterialWall({ pointId, materials, loading, onChanged }:
                 onClick={() =>
                   setLightboxIndex((i) => (i === null ? null : (i + 1) % images.length))
                 }
-                className="px-3 py-1.5 border border-base-600 rounded hover:bg-base-700 transition-colors"
+                className="min-h-[40px] rounded border border-base-600 px-3 py-2 transition-colors hover:bg-base-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
               >
                 下一张 →
               </button>
@@ -396,6 +424,6 @@ export default function MaterialWall({ pointId, materials, loading, onChanged }:
           </button>
         </div>
       )}
-    </div>
+    </section>
   );
 }
