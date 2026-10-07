@@ -7,10 +7,8 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import UploadDropzone from '@/components/UploadDropzone';
 import UploadQueue, { type QueueItemView } from '@/components/UploadQueue';
-import LimitBadge from '@/components/LimitBadge';
 import { uploadFile, generateFileId, type UploadProgress } from '@/lib/upload';
 import { compressImageIfNeeded, shouldCompress } from '@/lib/imageCompress';
-import { getRuntimeConfig } from '@/lib/runtimeConfig';
 import {
   checkImageReadable,
   hasGpsExif,
@@ -54,8 +52,6 @@ export default function ImageUploadPanel({
   onMissingGps,
   onRequestPoint,
 }: Props) {
-  // 压缩目标取自后端运行配置，避免提示文案与 IMAGE_COMPRESS_TARGET_KB 脱节
-  const imageCompressTargetKB = getRuntimeConfig().imageCompressTargetKB;
   const [items, setItems] = useState<QueueItem[]>([]);
   // 队列处理锁：保证同一时刻只有一张图在上传（压缩/上传串行，避免 canvas 内存峰值）
   const processingRef = useRef(false);
@@ -225,13 +221,6 @@ export default function ImageUploadPanel({
         <span className="h-2 w-2 rounded-full bg-accent"></span>
         图片上传
       </h3>
-
-      {/* 限制条件压缩为徽标：原先面板顶部与虚线框内各写一整行，重复且难扫读 */}
-      <div className="mb-3 flex flex-wrap gap-1.5">
-        <LimitBadge>JPG / PNG / WEBP</LimitBadge>
-        <LimitBadge>自动压缩 ≤ {imageCompressTargetKB}KB</LimitBadge>
-        <LimitBadge tone="warn">纯黑 ≤ {Math.round(MAX_BLACK_RATIO * 100)}%</LimitBadge>
-      </div>
 
       <UploadDropzone
         id="image-input"

@@ -79,7 +79,7 @@ pnpm format
 `tests/ui-smoke.mjs` 用 CDP 驱动本机 headless Chrome，对上传页容易被后续改动破坏的 UI 契约做回归：
 
 - 未选择点位时上传区是引导式空状态（含 CTA），而非整块半透明
-- 上传限制只渲染一次（徽标区），不在面板顶部与拖放区重复
+- 上传限制只以拖放区提示与失败提示呈现，面板顶部不再重复罗列徽标
 - 文件输入可被键盘聚焦（视觉隐藏而非 `display:none`），拖放入口存在
 - 点位信息区与上传区为近似 1:1 双栏
 - 素材墙默认展开、点击标题可折叠
@@ -191,7 +191,7 @@ api/                  # 后端 Express 应用
 └── server.ts         # 本地开发服务器入口
 
 src/                  # 前端 React 应用
-├── components/       # 组件（UploadDropzone / UploadQueue / LimitBadge 为图片与视频面板共用）
+├── components/       # 组件（UploadDropzone / UploadQueue 为图片与视频面板共用）
 ├── lib/              # API 客户端、上传与图片校验工具、队列汇总派生逻辑
 ├── pages/            # 页面（UploadPage / AdminPage）
 └── types.ts          # 类型定义

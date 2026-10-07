@@ -7,7 +7,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import UploadDropzone from '@/components/UploadDropzone';
 import UploadQueue, { type QueueItemView } from '@/components/UploadQueue';
-import LimitBadge from '@/components/LimitBadge';
 import { uploadFile, generateFileId, type UploadProgress } from '@/lib/upload';
 import { checkVideoDuration, MIN_VIDEO_DURATION } from '@/lib/videoCheck';
 import { getRuntimeConfig } from '@/lib/runtimeConfig';
@@ -198,13 +197,6 @@ export default function VideoUploadPanel({
         <span className="h-2 w-2 rounded-full bg-accent"></span>
         视频上传
       </h3>
-
-      {/* 限制条件压缩为徽标：原先面板顶部与虚线框内各写一整行，重复且难扫读 */}
-      <div className="mb-3 flex flex-wrap gap-1.5">
-        <LimitBadge>MP4</LimitBadge>
-        <LimitBadge>单个 ≤ {videoMaxSizeMB}MB</LimitBadge>
-        <LimitBadge>时长 ≥ {MIN_VIDEO_DURATION} 秒</LimitBadge>
-      </div>
 
       <UploadDropzone
         id="video-input"

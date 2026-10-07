@@ -161,7 +161,6 @@ async function main() {
           hasCta: text.includes('前往选择点位'),
           panelOpacity: panel ? getComputedStyle(panel).opacity : null,
           badgeCount: text.split('JPG / PNG / WEBP').length - 1,
-          hasDuplicateHint: (text.match(/自动压缩/g) || []).length,
           // 左侧点位卡与两个上传面板各有空状态，「前往选择点位」只属于上传面板
           ctaCount: (text.match(/前往选择点位/g) || []).length,
         };
@@ -170,8 +169,7 @@ async function main() {
     check('上传区渲染引导式空状态', idle.hasEmptyState);
     check('空状态提供「前往选择点位」CTA', idle.hasCta);
     check('面板不再整体半透明', idle.panelOpacity === '1', `opacity=${idle.panelOpacity}`);
-    check('格式徽标只出现一次', idle.badgeCount === 1, `出现 ${idle.badgeCount} 次`);
-    check('限制文案不再重复两处', idle.hasDuplicateHint === 1, `出现 ${idle.hasDuplicateHint} 次`);
+    check('面板不再展示格式限制徽标', idle.badgeCount === 0, `出现 ${idle.badgeCount} 次`);
     check('图片与视频面板均有 CTA', idle.ctaCount === 2, `检测到 ${idle.ctaCount} 个`);
 
     log('— CTA 把焦点交还点位选择器 —');
