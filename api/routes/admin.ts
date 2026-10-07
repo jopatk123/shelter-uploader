@@ -354,7 +354,7 @@ router.post('/download-ticket', (_req, res) => {
  * query: filter=all|img_only|video_only|completed
  *   - img_only:   仅有图片（无视频）
  *   - video_only: 仅有视频（无图片）
- *   - completed:  至少上传一种素材
+ *   - completed:  图片和视频都已上传
  */
 router.get('/points', (req, res) => {
   const filter = ((req.query.filter as string) || 'all') as PointFilter;

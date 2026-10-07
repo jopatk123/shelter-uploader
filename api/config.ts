@@ -74,6 +74,14 @@ export const CORS_ORIGIN = (process.env.CORS_ORIGIN ?? '').trim();
 export const DATA_DIR = process.env.DATA_DIR;
 
 /**
+ * 是否信任反向代理转发的客户端 IP（前置 Nginx 时设为 1）
+ * 只信任一层代理。直连 IP:端口 部署保持关闭，避免伪造 X-Forwarded-For 绕过限流
+ */
+export const TRUST_PROXY = ['1', 'true', 'yes'].includes(
+  (process.env.TRUST_PROXY ?? '').trim().toLowerCase(),
+);
+
+/**
  * 弱配置启动告警（不阻断启动，但公网部署时必须整改）
  * - JWT_SECRET 过短：token 签名可被离线暴力破解伪造
  * - ADMIN_PASSWORD 命中常见弱口令表：配合 15 分钟 20 次限流虽难以在线爆破，

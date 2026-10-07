@@ -97,9 +97,10 @@ describe('管理员点位列表筛选', () => {
 
     expect(res.body.success).toBe(true);
     expect(Array.isArray(res.body.data)).toBe(true);
-    // v2 语义：返回的点位必须至少上传过一种素材（与共享库中其他测试文件的上传无关）
+    // 已完成 = 图片和视频都有（与共享库中其他测试文件的上传无关）
     for (const p of res.body.data) {
-      expect(p.img_count + p.video_count).toBeGreaterThan(0);
+      expect(p.img_count).toBeGreaterThan(0);
+      expect(p.video_count).toBeGreaterThan(0);
     }
   });
 

@@ -15,6 +15,7 @@ import {
   VIDEO_MAX_SIZE_MB,
   IMAGE_COMPRESS_TARGET_KB,
   CORS_ORIGIN,
+  TRUST_PROXY,
 } from './config.js';
 import pointsRoutes from './routes/points.js';
 import uploadRoutes from './routes/upload.js';
@@ -33,6 +34,11 @@ try {
 }
 
 const app: express.Application = express();
+
+// 前置 Nginx 时只信任一层代理，使 req.ip 取 X-Forwarded-For 中的客户端地址
+if (TRUST_PROXY) {
+  app.set('trust proxy', 1);
+}
 
 // 隐藏 Express 框架标识 + 统一安全响应头（nosniff / frameguard / HSTS 等）
 app.disable('x-powered-by');
@@ -101,7 +107,8 @@ app.get('/api/config', (_req: Request, res: Response) => {
 /**
  * 健康检查（Docker HEALTHCHECK 探针）
  * 返回 DB 可读性 + 磁盘空间 + 降级状态
- * - DB 不可读时返回 503，触发 Docker 重启容器 → 回到启动检查流程
+ * - DB 不可读时返回 503。Docker 不会因 unhealthy 重启进程，
+ *   运行中的坏库由 server.ts 的探活退出进程，再由 restart 策略拉起并走降级恢复
  * - 降级模式下返回 200（应用可用，但数据可能不完整，需人工关注）
  */
 app.get('/api/health', (_req: Request, res: Response) => {
@@ -164,92 +171,100 @@ if (fs.existsSync(clientDistPath)) {
 }
 
 /**
- * 定时清理7天前未合并的过期分片（每天凌晨3点执行）
+ * 定时清理7天前未合并的过期分片（北京时间每天凌晨3点执行）
  */
-cron.schedule('0 3 * * *', async () => {
-  try {
-    if (!fs.existsSync(TEMP_CHUNK_DIR)) return;
-    const dirs = fs.readdirSync(TEMP_CHUNK_DIR);
-    const now = Date.now();
-    const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+cron.schedule(
+  '0 3 * * *',
+  async () => {
+    try {
+      if (!fs.existsSync(TEMP_CHUNK_DIR)) return;
+      const dirs = fs.readdirSync(TEMP_CHUNK_DIR);
+      const now = Date.now();
+      const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
 
-    for (const dir of dirs) {
-      const dirPath = path.join(TEMP_CHUNK_DIR, dir);
-      const stat = fs.statSync(dirPath);
-      if (now - stat.mtimeMs > sevenDaysMs) {
-        await fse.remove(dirPath);
-        console.log(`[cron] 清理过期分片目录: ${dir}`);
+      for (const dir of dirs) {
+        const dirPath = path.join(TEMP_CHUNK_DIR, dir);
+        const stat = fs.statSync(dirPath);
+        if (now - stat.mtimeMs > sevenDaysMs) {
+          await fse.remove(dirPath);
+          console.log(`[cron] 清理过期分片目录: ${dir}`);
+        }
       }
+    } catch (err) {
+      console.error('[cron] 清理分片失败:', err);
     }
-  } catch (err) {
-    console.error('[cron] 清理分片失败:', err);
-  }
-});
+  },
+  { timezone: 'Asia/Shanghai' },
+);
 
 /**
- * 定时清理孤儿素材（每周日凌晨4点执行）
+ * 定时清理孤儿素材（北京时间每周日凌晨4点执行）
  * 孤儿定义：storage 中存在但 DB 无记录的素材文件
  * 保守策略：
  *   - 跳过 .tmp 文件（可能是正在合并的临时文件）
  *   - 跳过最近 1 小时修改的文件（可能是正在上传的文件）
  */
-cron.schedule('0 4 * * 0', async () => {
-  try {
-    if (!fs.existsSync(STORAGE_DIR)) return;
+cron.schedule(
+  '0 4 * * 0',
+  async () => {
+    try {
+      if (!fs.existsSync(STORAGE_DIR)) return;
 
-    // 查询 DB 中所有素材路径（v2 起为 material 多行表）
-    const rows = db.prepare(`SELECT file_path FROM material`).all() as Array<{
-      file_path: string;
-    }>;
+      // 查询 DB 中所有素材路径（v2 起为 material 多行表）
+      const rows = db.prepare(`SELECT file_path FROM material`).all() as Array<{
+        file_path: string;
+      }>;
 
-    const validPaths = new Set<string>();
-    for (const row of rows) {
-      validPaths.add(row.file_path);
-    }
-
-    // 遍历 storage 目录
-    const now = Date.now();
-    const oneHourMs = 60 * 60 * 1000;
-    let cleaned = 0;
-
-    for (const dir of fs.readdirSync(STORAGE_DIR)) {
-      const dirPath = path.join(STORAGE_DIR, dir);
-      let stat: fs.Stats;
-      try {
-        stat = fs.statSync(dirPath);
-      } catch {
-        continue;
+      const validPaths = new Set<string>();
+      for (const row of rows) {
+        validPaths.add(row.file_path);
       }
-      if (!stat.isDirectory()) continue;
 
-      for (const file of fs.readdirSync(dirPath)) {
-        // 跳过临时文件
-        if (file.endsWith('.tmp')) continue;
+      // 遍历 storage 目录
+      const now = Date.now();
+      const oneHourMs = 60 * 60 * 1000;
+      let cleaned = 0;
 
-        const relPath = path.join(dir, file);
-        if (validPaths.has(relPath)) continue;
-
-        const fullPath = path.join(dirPath, file);
+      for (const dir of fs.readdirSync(STORAGE_DIR)) {
+        const dirPath = path.join(STORAGE_DIR, dir);
+        let stat: fs.Stats;
         try {
-          const fileStat = fs.statSync(fullPath);
-          // 跳过最近 1 小时修改的文件（可能正在上传）
-          if (now - fileStat.mtimeMs < oneHourMs) continue;
-
-          fs.unlinkSync(fullPath);
-          cleaned++;
+          stat = fs.statSync(dirPath);
         } catch {
-          // 忽略单个文件删除失败
+          continue;
+        }
+        if (!stat.isDirectory()) continue;
+
+        for (const file of fs.readdirSync(dirPath)) {
+          // 跳过临时文件
+          if (file.endsWith('.tmp')) continue;
+
+          const relPath = path.join(dir, file);
+          if (validPaths.has(relPath)) continue;
+
+          const fullPath = path.join(dirPath, file);
+          try {
+            const fileStat = fs.statSync(fullPath);
+            // 跳过最近 1 小时修改的文件（可能正在上传）
+            if (now - fileStat.mtimeMs < oneHourMs) continue;
+
+            fs.unlinkSync(fullPath);
+            cleaned++;
+          } catch {
+            // 忽略单个文件删除失败
+          }
         }
       }
-    }
 
-    if (cleaned > 0) {
-      console.log(`[cron] 清理孤儿素材 ${cleaned} 个`);
+      if (cleaned > 0) {
+        console.log(`[cron] 清理孤儿素材 ${cleaned} 个`);
+      }
+    } catch (err) {
+      console.error('[cron] 清理孤儿素材失败:', err);
     }
-  } catch (err) {
-    console.error('[cron] 清理孤儿素材失败:', err);
-  }
-});
+  },
+  { timezone: 'Asia/Shanghai' },
+);
 
 /**
  * 错误处理中间件

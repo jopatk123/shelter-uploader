@@ -20,6 +20,12 @@ FROM node:22-slim
 
 WORKDIR /app
 
+# 定时任务按北京时间；slim 镜像默认没有时区数据
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends tzdata \
+  && rm -rf /var/lib/apt/lists/*
+ENV TZ=Asia/Shanghai
+
 # 安装生产依赖与运行时
 RUN corepack enable && corepack prepare pnpm@10.30.3 --activate
 

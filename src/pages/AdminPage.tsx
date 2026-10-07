@@ -125,7 +125,8 @@ export default function AdminPage() {
     if (filter === 'img_only') return points.filter((p) => p.img_count > 0 && p.video_count === 0);
     if (filter === 'video_only')
       return points.filter((p) => p.img_count === 0 && p.video_count > 0);
-    if (filter === 'completed') return points.filter((p) => p.uploaded_count > 0);
+    if (filter === 'completed')
+      return points.filter((p) => getPointState(p.img_count, p.video_count) === 'complete');
     return points;
   }, [points, filter]);
 
@@ -135,19 +136,22 @@ export default function AdminPage() {
       all: points.length,
       img_only: points.filter((p) => p.img_count > 0 && p.video_count === 0).length,
       video_only: points.filter((p) => p.img_count === 0 && p.video_count > 0).length,
-      completed: points.filter((p) => p.uploaded_count > 0).length,
+      completed: points.filter((p) => getPointState(p.img_count, p.video_count) === 'complete')
+        .length,
     }),
     [points],
   );
 
   // 统计概览（必须在早期 return 之前调用，避免 Hook 顺序不一致）
+  // 已完成 / 部分完成 / 未开始 三者互斥，加总等于总点位数
   const stats = useMemo(
     () => ({
       total: points.length,
       imgTotal: points.reduce((sum, p) => sum + p.img_count, 0),
       videoTotal: points.reduce((sum, p) => sum + p.video_count, 0),
       materialTotal: points.reduce((sum, p) => sum + p.uploaded_count, 0),
-      completed: points.filter((p) => p.uploaded_count > 0).length,
+      completed: points.filter((p) => getPointState(p.img_count, p.video_count) === 'complete')
+        .length,
       partial: points.filter((p) => getPointState(p.img_count, p.video_count) === 'partial').length,
       empty: points.filter((p) => p.uploaded_count === 0).length,
     }),

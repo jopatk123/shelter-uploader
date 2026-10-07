@@ -1,6 +1,7 @@
 /**
  * 点位状态点阵组件
- * 141个圆点：绿色=图片+视频全部完成，黄色=仅上传其一（统计算完成），红色=均未上传
+ * 141个圆点：绿色=图片+视频都已上传，黄色=仅上传其一，红色=均未上传
+ * 完成百分比只计绿色点位
  * 点阵上方增加按区域（区县）分组的统计，一眼看出各区域完成进度
  * 点击区域卡片可高亮闪烁该区域对应的点位
  */
@@ -45,7 +46,9 @@ export default function PointDotGrid({
   const [hoveredId, setHoveredId] = useState<number | null>(null);
   const [highlightedDistrict, setHighlightedDistrict] = useState<string | null>(null);
 
-  const completedCount = points.filter((p) => p.uploaded_count > 0).length;
+  const completedCount = points.filter(
+    (p) => getPointState(p.img_count, p.video_count) === 'complete',
+  ).length;
   const partialCount = points.filter(
     (p) => getPointState(p.img_count, p.video_count) === 'partial',
   ).length;
@@ -61,7 +64,7 @@ export default function PointDotGrid({
       }
       stat.total++;
       const state = getPointState(p.img_count, p.video_count);
-      if (state === 'complete' || state === 'partial') stat.completed++;
+      if (state === 'complete') stat.completed++;
       if (state === 'partial') stat.partial++;
     }
     // 按总数降序排列
@@ -81,7 +84,7 @@ export default function PointDotGrid({
           <h3 className="font-mono text-sm text-base-200">
             点位状态总览
             <span className="ml-2 text-base-400">
-              完成 {completedCount} · 部分 {partialCount} · 共 {points.length}
+              全部完成 {completedCount} · 部分 {partialCount} · 共 {points.length}
             </span>
             <span className="ml-2 text-accent font-bold">{totalPercent}%</span>
           </h3>

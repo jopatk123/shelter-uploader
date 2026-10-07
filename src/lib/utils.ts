@@ -37,16 +37,16 @@ export function formatBeijingTime(utcStr: string | null | undefined): string {
 }
 
 /**
- * 点位上传状态（仅用于圆点/UI 颜色区分，不影响完成百分比统计）
- * - complete: 图片 + 视频 均已上传（绿色）
- * - partial:  仅上传其中之一（黄色，统计上也算完成）
+ * 点位上传状态（圆点颜色、完成百分比、导出状态共用这一套）
+ * - complete: 图片 + 视频 均已上传（绿色，计入完成百分比）
+ * - partial:  仅上传其中之一（黄色，不计入完成百分比）
  * - empty:    均未上传（红色）
  */
 export type PointState = 'complete' | 'partial' | 'empty';
 
 /**
  * 依据图片 / 视频上传数量判定点位状态
- * 统计完成百分比使用 imgCount > 0 || videoCount > 0，即 partial 也计入完成
+ * 完成百分比只统计 complete，避免「只传了一种」被算成已经做完
  */
 export function getPointState(imgCount: number, videoCount: number): PointState {
   const hasImage = imgCount > 0;

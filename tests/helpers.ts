@@ -89,7 +89,7 @@ function makeChunk(type: string, data: Buffer): Buffer {
  * @param durationSeconds 视频时长（秒）
  * @returns 最小合法 MP4 buffer
  */
-export function makeMp4Buffer(durationSeconds: number): Buffer {
+export function makeMp4Buffer(durationSeconds: number, moovPrefix?: Buffer): Buffer {
   const timescale = 1000; // 1 tick = 1ms
   const duration = Math.round(durationSeconds * timescale);
 
@@ -107,7 +107,7 @@ export function makeMp4Buffer(durationSeconds: number): Buffer {
   mvhdData.writeUInt32BE(1, 96); // next_track_ID
 
   const mvhdBox = makeMp4Box('mvhd', mvhdData);
-  const moovBox = makeMp4Box('moov', mvhdBox);
+  const moovBox = makeMp4Box('moov', moovPrefix ? Buffer.concat([moovPrefix, mvhdBox]) : mvhdBox);
 
   // ftyp box
   const ftypData = Buffer.alloc(8);
@@ -119,8 +119,17 @@ export function makeMp4Buffer(durationSeconds: number): Buffer {
 }
 
 /**
- * 生成符合时长要求（≥ 10 秒）的 MP4 buffer
+ * moov 内、mvhd 之前放一个较大的 free box。
+ * 时长信息因此不在 moov 开头的一小段里，解析器必须按 box 边界向后找。
  */
+export function makeMp4WithBoxBeforeMvhd(paddingBytes: number, durationSeconds = 15): Buffer {
+  const sizeBuf = Buffer.alloc(4);
+  sizeBuf.writeUInt32BE(8 + paddingBytes, 0);
+  const free = Buffer.concat([sizeBuf, Buffer.from('free', 'ascii'), Buffer.alloc(paddingBytes)]);
+  return makeMp4Buffer(durationSeconds, free);
+}
+
+/** 生成符合时长要求（≥ 10 秒）的 MP4 buffer */
 export function makeValidMp4(durationSeconds = 15): Buffer {
   return makeMp4Buffer(durationSeconds);
 }

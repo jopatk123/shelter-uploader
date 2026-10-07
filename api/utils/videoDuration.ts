@@ -37,71 +37,76 @@ export function getVideoDuration(filePath: string): number | null {
   const fd = fs.openSync(filePath, 'r');
   try {
     const fileSize = fs.fstatSync(fd).size;
-    const moovOffset = findTopLevelBox(fd, fileSize, 'moov');
-    if (moovOffset === -1) return null;
+    const moov = findBox(fd, 0, fileSize, 'moov');
+    if (!moov) return null;
 
-    // 读取 moov box 的前 512 字节（mvhd 通常是 moov 的第一个子 box）
-    const moovHeaderSize = 8;
-    const readSize = Math.min(512, fileSize - moovOffset - moovHeaderSize);
-    if (readSize < 16) return null;
-    const moovBuf = Buffer.alloc(readSize);
-    fs.readSync(fd, moovBuf, 0, readSize, moovOffset + moovHeaderSize);
+    const mvhd = findBox(fd, moov.offset + moov.headerSize, moov.offset + moov.size, 'mvhd');
+    if (!mvhd) return null;
 
-    // 在 moov 数据中查找 mvhd 子 box
-    let offset = 0;
-    while (offset + 8 <= moovBuf.length) {
-      const subSize = moovBuf.readUInt32BE(offset);
-      const subType = moovBuf.toString('ascii', offset + 4, offset + 8);
-
-      if (subType === 'mvhd') {
-        return parseMvhd(moovBuf.subarray(offset + 8));
-      }
-
-      if (subSize === 0) break;
-      if (subSize < 8) break;
-      offset += subSize;
-    }
-
-    return null;
+    // version 1 的 mvhd 头部为 32 字节，按需读取，不把整个 moov 载入内存
+    const payloadLen = Math.min(32, mvhd.size - mvhd.headerSize);
+    if (payloadLen < 20) return null;
+    const payload = Buffer.alloc(payloadLen);
+    const read = fs.readSync(fd, payload, 0, payloadLen, mvhd.offset + mvhd.headerSize);
+    if (read < payloadLen) return null;
+    return parseMvhd(payload);
   } finally {
     fs.closeSync(fd);
   }
 }
 
+interface BoxHeader {
+  type: string;
+  /** 含头部在内的 box 总长度 */
+  size: number;
+  /** 8（32 位 size）或 16（64 位 largesize） */
+  headerSize: number;
+}
+
 /**
- * 遍历顶层 box 查找指定类型的 box，返回其起始偏移量
- * 仅读取每个 box 的 8 字节头（size + type），通过 seek 跳过 data
+ * 读取单个 box 头。size==0 表示延伸到 limit；size==1 表示后跟 8 字节 largesize。
  */
-function findTopLevelBox(fd: number, fileSize: number, targetType: string): number {
-  let offset = 0;
-  const header = Buffer.alloc(8);
+function readBoxHeader(fd: number, offset: number, limit: number): BoxHeader | null {
+  if (offset < 0 || offset + 8 > limit) return null;
+  const header = Buffer.alloc(16);
+  if (fs.readSync(fd, header, 0, 8, offset) < 8) return null;
 
-  while (offset + 8 <= fileSize) {
-    const bytesRead = fs.readSync(fd, header, 0, 8, offset);
-    if (bytesRead < 8) break;
+  let size = header.readUInt32BE(0);
+  const type = header.toString('ascii', 4, 8);
+  let headerSize = 8;
 
-    let size = header.readUInt32BE(0);
-    const type = header.toString('ascii', 4, 8);
-
-    if (size === 0) {
-      // box 延伸到文件末尾
-      size = fileSize - offset;
-    } else if (size === 1) {
-      // 64 位 size
-      const extBuf = Buffer.alloc(8);
-      fs.readSync(fd, extBuf, 0, 8, offset + 8);
-      size = Number(extBuf.readBigUInt64BE(0));
-    }
-
-    if (type === targetType) {
-      return offset;
-    }
-
-    if (size < 8) break;
-    offset += size;
+  if (size === 1) {
+    if (offset + 16 > limit) return null;
+    if (fs.readSync(fd, header, 8, 8, offset + 8) < 8) return null;
+    const big = header.readBigUInt64BE(8);
+    if (big > BigInt(Number.MAX_SAFE_INTEGER)) return null;
+    size = Number(big);
+    headerSize = 16;
+  } else if (size === 0) {
+    size = limit - offset;
   }
 
-  return -1;
+  if (size < headerSize || offset + size > limit) return null;
+  return { type, size, headerSize };
+}
+
+/**
+ * 在 [start, end) 这一层顺序查找指定 box，通过 seek 跳过 box 内容
+ */
+function findBox(
+  fd: number,
+  start: number,
+  end: number,
+  targetType: string,
+): (BoxHeader & { offset: number }) | null {
+  let offset = start;
+  while (offset + 8 <= end) {
+    const header = readBoxHeader(fd, offset, end);
+    if (!header) return null;
+    if (header.type === targetType) return { ...header, offset };
+    offset += header.size;
+  }
+  return null;
 }
 
 /**

@@ -6,8 +6,10 @@ services:
     container_name: shelter-uploader
     restart: unless-stopped
     ports:
-      - '15000:3001'
+      - '${DOCKER_PORT:-15000}:3001'
+    mem_limit: 512m
     environment:
+      - TZ=Asia/Shanghai
       - PORT=3001
       # 必填：未在 .env 配置时直接报错，避免用默认凭据启动
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:?ADMIN_PASSWORD 未配置：请先复制 .env.example 为 .env 并设置}
@@ -19,9 +21,11 @@ services:
       # 留空表示不启用 CORS（前后端同源部署无需跨域）
       - CORS_ORIGIN=${CORS_ORIGIN:-}
       - DATA_DIR=/app/data
+      # 前置 Nginx 时设为 1，限流才按真实客户端 IP 计算；直连部署留空
+      - TRUST_PROXY=${TRUST_PROXY:-}
     volumes:
       - ./data:/app/data
-    # 适配低配服务器，限制资源
+    # mem_limit 对 docker compose 直接生效；deploy.resources 供 Swarm 使用
     deploy:
       resources:
         limits:

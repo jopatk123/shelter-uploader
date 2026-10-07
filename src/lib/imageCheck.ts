@@ -200,7 +200,7 @@ function checkGpsInTiff(view: DataView, tiffOffset: number): boolean {
 // 这类图片对点位采集无价值。校验图片中纯黑像素占比，超过阈值则拒绝上传。
 //
 // 设计权衡：
-// - 前端用 Canvas 解码像素做精确校验，用户立即得到反馈
+// - 前端用 Canvas 解码像素做精确校验，用户立即得到反馈；校验失败则拒绝上传
 // - 后端不重复校验（解码 JPEG/WEBP 像素需引入第三方依赖，与项目"避免膨胀"原则冲突）
 // - "纯黑"严格定义为 RGB(0,0,0)；提供 BLACK_THRESHOLD 常量便于后续放宽到近黑
 
@@ -254,7 +254,7 @@ const BLACK_CHECK_MAX_DIMENSION = 2048;
  * - 通过 Canvas drawImage 解码图片到 canvas
  * - 大图降采样到最大边 2048 像素内（保持原始比例），降低内存与计算量
  * - 使用 getImageData 读取像素，调用 countBlackPixels 统计
- * - 任何解码异常均视为「无法校验」，放行上传（避免误伤）
+ * - 解码异常视为无法确认，拒绝上传（前面的可解码校验已通过时，这里失败不应放行）
  *
  * @returns { ok, ratio, sampledPixels }
  *   - ok: true 表示通过校验（占比 ≤ MAX_BLACK_RATIO）；false 表示超限应拒绝
@@ -279,8 +279,7 @@ export async function checkBlackPixelRatio(
     canvas.height = targetH;
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
     if (!ctx) {
-      // 无法获取 canvas 上下文（极少见），放行
-      return { ok: true, ratio: 0, sampledPixels: 0 };
+      throw new Error('无法校验图片是否为纯黑，请更换图片重试');
     }
     ctx.drawImage(bitmap, 0, 0, targetW, targetH);
 
@@ -293,9 +292,9 @@ export async function checkBlackPixelRatio(
     }
 
     return { ok: ratio <= MAX_BLACK_RATIO, ratio, sampledPixels: total };
-  } catch {
-    // 解码失败：放行（其他校验会兜底）
-    return { ok: true, ratio: 0, sampledPixels: 0 };
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('纯黑')) throw err;
+    throw new Error('无法校验图片是否为纯黑，请更换图片重试');
   }
 }
 

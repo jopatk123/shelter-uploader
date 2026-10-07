@@ -6,7 +6,7 @@
  *   - 检查失败 → 降级恢复：重命名坏库为 .corrupt-{ts}（保留供人工分析）
  *     → 清理 WAL/SHM → 重建空库 → 重新初始化 141 个避风点点位
  *   - storage 目录中的素材文件保留，但 DB 记录已丢失，需人工合并
- *   - 运行时损坏由 HEALTHCHECK 检测并触发容器重启 → 回到启动检查流程
+ *   - 运行时损坏由 server.ts 探活发现后退出进程，Docker restart 拉起后回到启动检查流程
  */
 import Database from 'better-sqlite3';
 import path from 'path';
@@ -278,6 +278,33 @@ function migrateLegacyMaterials(): void {
   console.log(
     `[db] 旧素材表迁移完成（${legacyRows.length} 个点位），旧表已重命名为 point_material_legacy_v1`,
   );
+}
+
+/**
+ * 运行中探活：库损坏或无法打开时退出进程，由 Docker restart 拉起后走降级恢复。
+ * 锁等待不算损坏，避免上传高峰误重启。
+ * 仅由 server.ts 启动；测试导入 app 时不会调用。
+ */
+export function startDbWatchdog(intervalMs = 60_000): ReturnType<typeof setInterval> {
+  const timer = setInterval(() => {
+    try {
+      const result = db.pragma('quick_check', { simple: true });
+      if (result !== 'ok') {
+        console.error('[db] 运行中完整性检查失败，进程退出以触发容器重启');
+        process.exit(1);
+      }
+    } catch (err) {
+      const code = (err as { code?: string }).code ?? '';
+      if (code === 'SQLITE_BUSY' || code === 'SQLITE_LOCKED') {
+        console.error('[db] 探活时数据库繁忙，跳过本次检查');
+        return;
+      }
+      console.error('[db] 运行中数据库不可用，进程退出:', (err as Error).message);
+      process.exit(1);
+    }
+  }, intervalMs);
+  timer.unref();
+  return timer;
 }
 
 export { db, DATA_DIR, STORAGE_DIR, TEMP_CHUNK_DIR, DB_PATH };

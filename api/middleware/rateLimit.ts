@@ -7,8 +7,8 @@
  *
  * 设计取舍：
  *   - 单进程内存实现，不引入 redis 等外部依赖；容器为单实例部署，足够
- *   - 键为 req.ip。未启用 trust proxy，直连部署（IP:PORT）下即客户端真实 IP；
- *     若后续在前置 Nginx 后运行，需相应开启 trust proxy 才能按真实 IP 区分
+ *   - 键为 req.ip。直连部署（IP:PORT）下即客户端真实 IP；
+ *     前置 Nginx 时设置 TRUST_PROXY=1，否则所有客户端共用代理 IP 的计数器
  *   - 惰性清理：仅当记录数超过阈值时扫描剔除过期项，避免高频请求下的 O(n) 开销
  */
 import type { Request, Response, NextFunction } from 'express';

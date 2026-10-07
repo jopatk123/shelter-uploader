@@ -38,7 +38,7 @@ export type PointFilter = 'all' | 'img_only' | 'video_only' | 'completed';
 const FILTER_HAVING: Record<Exclude<PointFilter, 'all'>, string> = {
   img_only: 'HAVING img_count > 0 AND video_count = 0',
   video_only: 'HAVING img_count = 0 AND video_count > 0',
-  completed: 'HAVING img_count > 0 OR video_count > 0',
+  completed: 'HAVING img_count > 0 AND video_count > 0',
 };
 
 /** CSV 表格列定义 */
@@ -73,9 +73,11 @@ function escapeCsvCell(value: unknown): string {
 
 /**
  * 依据图片/视频上传情况判定完成状态文案
+ * 与圆点颜色一致：两种都有才是已完成，只有一种是部分完成
  */
 export function describePointStatus(imgCount: number, videoCount: number): string {
-  if (imgCount > 0 || videoCount > 0) return '已完成';
+  if (imgCount > 0 && videoCount > 0) return '已完成';
+  if (imgCount > 0 || videoCount > 0) return '部分完成';
   return '未上传';
 }
 

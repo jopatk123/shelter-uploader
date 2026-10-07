@@ -101,19 +101,13 @@ export default function MaterialWall({ pointId, materials, loading, onChanged }:
           throw new Error('无法读取图片，文件可能已损坏，请更换图片重试');
         }
 
-        // 校验纯黑像素占比（校验器异常不阻塞，与上传面板策略一致）
-        try {
-          const { ok, ratio, sampledPixels } = await checkBlackPixelRatio(file);
-          if (!ok) {
-            throw new Error(
-              `纯黑像素占比 ${(ratio * 100).toFixed(2)}% 超过 ${(MAX_BLACK_RATIO * 100).toFixed(
-                0,
-              )}% 限制（采样 ${sampledPixels} 像素），可能为全黑/损坏图`,
-            );
-          }
-        } catch (err) {
-          if (err instanceof Error && err.message.includes('纯黑')) throw err;
-          console.warn('纯黑像素校验异常，跳过', file.name);
+        const { ok, ratio, sampledPixels } = await checkBlackPixelRatio(file);
+        if (!ok) {
+          throw new Error(
+            `纯黑像素占比 ${(ratio * 100).toFixed(2)}% 超过 ${(MAX_BLACK_RATIO * 100).toFixed(
+              0,
+            )}% 限制（采样 ${sampledPixels} 像素），可能为全黑/损坏图`,
+          );
         }
 
         // 压缩到后端配置的图片上限以内（默认 500KB；EXIF 放得下才保留）

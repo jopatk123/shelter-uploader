@@ -10,7 +10,7 @@ import {
   isDurationValid,
   MIN_VIDEO_DURATION,
 } from '../../api/utils/videoDuration.js';
-import { makeMp4Buffer } from '../helpers.js';
+import { makeMp4Buffer, makeMp4WithBoxBeforeMvhd } from '../helpers.js';
 
 let tmpDir: string;
 
@@ -64,6 +64,16 @@ describe('videoDuration 工具函数', () => {
 
       const duration = getVideoDuration(filePath);
       expect(duration).toBeNull();
+    });
+
+    it('mvhd 不在 moov 开头时仍能解析时长', () => {
+      const buf = makeMp4WithBoxBeforeMvhd(600, 15);
+      const filePath = path.join(tmpDir, 'mvhd-after-free.mp4');
+      fs.writeFileSync(filePath, buf);
+
+      const duration = getVideoDuration(filePath);
+      expect(duration).not.toBeNull();
+      expect(duration).toBeCloseTo(15, 1);
     });
 
     it('缺少 moov box 的文件返回 null', () => {

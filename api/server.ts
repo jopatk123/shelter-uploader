@@ -2,12 +2,16 @@
  * local server entry file, for local development
  */
 import app from './app.js';
-import { db } from './db.js';
+import { db, startDbWatchdog } from './db.js';
 import { PORT } from './config.js';
 
 const server = app.listen(PORT, () => {
   console.log(`Server ready on port ${PORT}`);
 });
+
+// 运行中库损坏时退出，交给 Docker restart 拉起并走启动时的降级恢复。
+// 不放在 /api/health 里：测试会打这个接口，不能因此杀掉测试进程。
+startDbWatchdog();
 
 /**
  * 优雅关闭：先停止接收新连接，再关闭数据库（触发 WAL checkpoint 合并日志），最后退出

@@ -181,9 +181,15 @@ export default function ImageUploadPanel({
           });
           continue;
         }
-      } catch {
-        // 黑像素校验失败不阻塞上传（后端仍会做可解析性校验兜底）
-        console.warn('纯黑像素校验异常，跳过', file.name);
+      } catch (err) {
+        rejected.push({
+          key: nextKey(),
+          file,
+          status: 'error',
+          progress: null,
+          error: err instanceof Error ? err.message : '无法校验图片是否为纯黑，请更换图片重试',
+        });
+        continue;
       }
 
       accepted.push({ key: nextKey(), file, status: 'pending', progress: null });
