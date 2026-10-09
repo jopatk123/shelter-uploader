@@ -39,7 +39,7 @@ export default function LoginModal({ onLogin }: Props) {
             <span className="text-accent font-mono font-bold text-xl">A</span>
           </div>
           <h2 className="font-mono text-lg text-base-100">管理员登录</h2>
-          <p className="text-xs text-base-400 mt-1">请输入管理密码</p>
+          <p className="text-xs text-base-400 mt-1">请输入管理密码或 API Token</p>
         </div>
 
         <form onSubmit={handleSubmit}>
@@ -47,7 +47,7 @@ export default function LoginModal({ onLogin }: Props) {
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            placeholder="管理密码"
+            placeholder="管理密码或 API Token"
             autoFocus
             className="w-full bg-base-800 border border-base-600 rounded px-3 py-2.5 text-sm text-base-100 focus:border-accent focus:outline-none font-mono mb-3"
           />

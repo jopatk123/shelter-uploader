@@ -8,9 +8,10 @@ import archiver from 'archiver';
 import { db, STORAGE_DIR } from '../db.js';
 import {
   authMiddleware,
-  ticketMiddleware,
+  adminOrTicketMiddleware,
   generateToken,
   verifyPassword,
+  matchesApiToken,
   generateDownloadTicket,
 } from '../middleware/auth.js';
 import { beijingTimestamp } from '../utils/time.js';
@@ -63,7 +64,7 @@ function isBatchType(type: string): type is BatchType {
 
 /**
  * POST /api/admin/login
- * 密码校验，返回 Token
+ * 校验管理密码或 API_TOKEN，返回 24 小时会话 Token
  */
 router.post('/login', loginLimiter, (req, res) => {
   const { password } = req.body;
@@ -72,8 +73,9 @@ router.post('/login', loginLimiter, (req, res) => {
     return;
   }
 
-  if (!verifyPassword(password)) {
-    // 记录失败来源 IP（不记录密码），便于部署后审计暴力破解尝试
+  // 管理密码与 API_TOKEN 都可换取 24 小时会话，供管理后台页面使用
+  if (!verifyPassword(password) && !matchesApiToken(password)) {
+    // 记录失败来源 IP（不记录密码或 Token），便于部署后审计暴力破解尝试
     console.warn(`[admin/login] 密码错误，来源 IP: ${req.ip ?? 'unknown'}`);
     res.status(401).json({ success: false, error: '密码错误' });
     return;
@@ -114,12 +116,12 @@ function parseIdsParam(raw: unknown): number[] | null {
  *   - 不传 ids：导出全部点位
  *   - 传 ids：仅导出指定点位
  *
- * 鉴权方式：一次性下载票据（60秒有效，仅可用一次）
+ * 鉴权方式：Authorization Bearer（JWT 或 API_TOKEN），或一次性下载票据（60秒有效，仅可用一次）
  *
  * 表格列：序号、名称、区县、乡镇、船管站、经度、纬度、
  *         图片数、视频数、已上传素材数、完成状态、最后上传时间
  */
-router.get('/stats-csv', ticketMiddleware, (req, res) => {
+router.get('/stats-csv', adminOrTicketMiddleware, (req, res) => {
   // 解析可选 ids 参数；非法值返回 400
   let ids: number[] | null = null;
   try {
@@ -156,8 +158,8 @@ router.get('/stats-csv', ticketMiddleware, (req, res) => {
  * 序号按 (点位, 类型) 各自从 1 开始，所以 type=all 时同一个文件夹里
  * img_1.jpg 与 video_1.mp4 并存，与分类型下载得到的命名完全一致。
  *
- * 鉴权方式：一次性下载票据（60秒有效，仅可用一次）
- * 票据通过 POST /api/admin/download-ticket（需 JWT 鉴权）获取
+ * 鉴权方式：Authorization Bearer（JWT 或 API_TOKEN），或一次性下载票据（60秒有效，仅可用一次）
+ * 票据通过 POST /api/admin/download-ticket（需管理凭证）获取
  *
  * 容错策略：
  *   - 磁盘上不存在的文件自动跳过，记录警告
@@ -165,7 +167,7 @@ router.get('/stats-csv', ticketMiddleware, (req, res) => {
  *   - 客户端断开自动中止打包，释放资源
  *   - 全部文件不存在时返回 404
  */
-router.get('/batch-download', ticketMiddleware, (req, res) => {
+router.get('/batch-download', adminOrTicketMiddleware, (req, res) => {
   const type = req.query.type as string;
   if (!isBatchType(type)) {
     res.status(400).json({ success: false, error: 'type 参数无效，仅支持 img / video / all' });

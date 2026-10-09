@@ -17,6 +17,8 @@ fs.mkdirSync(path.join(TEST_DATA_DIR, 'temp_chunk'), { recursive: true });
 process.env.DATA_DIR = TEST_DATA_DIR;
 process.env.ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '123456';
 process.env.JWT_SECRET = process.env.JWT_SECRET || 'test-secret';
+// 固定测试用 API Token，覆盖 .env 里的真实值，避免用例依赖本机配置
+process.env.API_TOKEN = 'test-api-token-0123456789abcdef0123456789abcdef';
 process.env.NODE_ENV = 'test';
 
 // 测试结束后清理临时目录

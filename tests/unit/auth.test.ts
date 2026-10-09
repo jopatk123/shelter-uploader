@@ -8,8 +8,9 @@ import jwt from 'jsonwebtoken';
 // 设置测试环境变量（在 import 模块前）
 process.env.ADMIN_PASSWORD = '123456';
 process.env.JWT_SECRET = 'test-secret-key';
+process.env.API_TOKEN = 'test-api-token-0123456789abcdef0123456789abcdef';
 
-const { generateToken, verifyPassword, authMiddleware } =
+const { generateToken, verifyPassword, matchesApiToken, authMiddleware } =
   await import('../../api/middleware/auth.js');
 
 describe('auth middleware', () => {
@@ -93,6 +94,31 @@ describe('auth middleware', () => {
 
       expect(res.statusCode).toBe(403);
       expect((res.body as any).error).toContain('Token');
+    });
+
+    it('环境变量 API Token 调用 next', () => {
+      const req = {
+        headers: { authorization: `Bearer ${process.env.API_TOKEN}` },
+      } as any;
+      const res = mockRes();
+      let called = false;
+      authMiddleware(req, res, () => {
+        called = true;
+      });
+
+      expect(called).toBe(true);
+      expect(matchesApiToken(process.env.API_TOKEN!)).toBe(true);
+    });
+
+    it('错误的 API Token 返回 403', () => {
+      const req = { headers: { authorization: 'Bearer not-the-api-token' } } as any;
+      const res = mockRes();
+      authMiddleware(req, res, () => {
+        throw new Error('next 不应被调用');
+      });
+
+      expect(res.statusCode).toBe(403);
+      expect(matchesApiToken('not-the-api-token')).toBe(false);
     });
 
     it('有效 Token 调用 next', () => {

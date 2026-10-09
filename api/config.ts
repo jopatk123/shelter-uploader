@@ -45,6 +45,13 @@ export const JWT_SECRET = requireEnv('JWT_SECRET');
 /** 管理员登录密码（必需） */
 export const ADMIN_PASSWORD = requireEnv('ADMIN_PASSWORD');
 
+/**
+ * Agent / 脚本用的长期 API Token（可选）
+ * 配置后与管理员 JWT 权限相同：可访问全部管理接口，也可在管理后台登录框中代替密码。
+ * 留空则不启用。上传页接口本身公开，不依赖此 Token。
+ */
+export const API_TOKEN = (process.env.API_TOKEN ?? '').trim();
+
 /** 上传分片大小（MB） */
 export const CHUNK_SIZE_MB = optionalInt('CHUNK_SIZE', 5);
 
@@ -108,4 +115,13 @@ if (COMMON_WEAK_PASSWORDS.has(ADMIN_PASSWORD)) {
   console.warn(
     '[config] ⚠️ ADMIN_PASSWORD 为常见弱口令，公网部署会在短时间内被爆破，请立即更换强密码',
   );
+}
+if (API_TOKEN && API_TOKEN.length < 32) {
+  console.warn(
+    `[config] ⚠️ API_TOKEN 长度仅 ${API_TOKEN.length} 字符，建议使用 ≥ 32 字符的随机字符串，` +
+      '否则可能被在线猜测',
+  );
+}
+if (API_TOKEN) {
+  console.log('[config] 已启用 API_TOKEN：可作为管理接口的 Bearer 凭证，也可代替密码登录管理后台');
 }

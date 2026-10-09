@@ -14,6 +14,8 @@ services:
       # 必填：未在 .env 配置时直接报错，避免用默认凭据启动
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:?ADMIN_PASSWORD 未配置：请先复制 .env.example 为 .env 并设置}
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET 未配置：请先复制 .env.example 为 .env 并设置}
+      # 可选：Agent 长期凭证。留空表示不启用
+      - API_TOKEN=${API_TOKEN:-}
       - CHUNK_SIZE=${CHUNK_SIZE:-5}
       - VIDEO_MAX_SIZE_MB=${VIDEO_MAX_SIZE_MB:-80}
       - IMAGE_MAX_SIZE_KB=${IMAGE_MAX_SIZE_KB:-600}

@@ -4,7 +4,7 @@
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import type { Request, Response, NextFunction } from 'express';
-import { JWT_SECRET, ADMIN_PASSWORD } from '../config.js';
+import { JWT_SECRET, ADMIN_PASSWORD, API_TOKEN } from '../config.js';
 
 /**
  * 一次性下载票据存储（内存中，TTL 60 秒）
@@ -25,14 +25,41 @@ export function generateToken(): string {
 }
 
 /**
+ * 对两段字符串做 SHA-256 后再恒定时间比较，避免逐字节短路比较产生的时序侧信道
+ */
+function timingSafeStringEqual(left: string, right: string): boolean {
+  const a = crypto.createHash('sha256').update(left, 'utf8').digest();
+  const b = crypto.createHash('sha256').update(right, 'utf8').digest();
+  return crypto.timingSafeEqual(a, b);
+}
+
+/**
  * 校验密码
- * 先对双方做 SHA-256 摘要（保证等长）再 timingSafeEqual 比较，
- * 避免逐字节短路比较产生的时序侧信道
  */
 export function verifyPassword(password: string): boolean {
-  const a = crypto.createHash('sha256').update(password, 'utf8').digest();
-  const b = crypto.createHash('sha256').update(ADMIN_PASSWORD, 'utf8').digest();
-  return crypto.timingSafeEqual(a, b);
+  return timingSafeStringEqual(password, ADMIN_PASSWORD);
+}
+
+/**
+ * 校验是否为环境变量中配置的长期 API Token
+ * 未配置 API_TOKEN 时恒为 false
+ */
+export function matchesApiToken(presented: string): boolean {
+  if (!API_TOKEN || !presented) return false;
+  return timingSafeStringEqual(presented, API_TOKEN);
+}
+
+/**
+ * 管理凭证：长期 API Token，或未过期的管理员 JWT
+ */
+export function isAdminCredential(token: string): boolean {
+  if (matchesApiToken(token)) return true;
+  try {
+    jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -91,13 +118,27 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
     return;
   }
 
-  try {
-    // 固定算法为 HS256，防止 alg 混淆攻击（如 none / 算法降级）
-    jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] });
-    next();
-  } catch {
+  if (!isAdminCredential(token)) {
     res.status(403).json({ success: false, error: 'Token无效或已过期' });
+    return;
   }
+
+  next();
+}
+
+/**
+ * 管理凭证或一次性下载票据
+ * 浏览器原生下载继续用票据；Agent 可直接带 Authorization: Bearer（JWT 或 API_TOKEN）
+ * 凭证有效时不消费票据
+ */
+export function adminOrTicketMiddleware(req: Request, res: Response, next: NextFunction): void {
+  const token = extractToken(req);
+  if (token && isAdminCredential(token)) {
+    next();
+    return;
+  }
+
+  ticketMiddleware(req, res, next);
 }
 
 /**

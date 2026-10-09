@@ -74,6 +74,43 @@ describe('管理员鉴权 - 受保护接口', () => {
 
     expect(res.status).toBe(403);
   });
+
+  it('API_TOKEN 可访问管理接口', async () => {
+    const apiToken = process.env.API_TOKEN!;
+    const res = await request(app)
+      .get('/api/admin/points')
+      .set('Authorization', `Bearer ${apiToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data).toHaveLength(141);
+  });
+
+  it('API_TOKEN 可直接导出统计 CSV，无需下载票据', async () => {
+    const res = await request(app)
+      .get('/api/admin/stats-csv')
+      .set('Authorization', `Bearer ${process.env.API_TOKEN}`);
+
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/text\/csv/);
+  });
+
+  it('API_TOKEN 可作为登录口令进入管理后台', async () => {
+    const res = await request(app)
+      .post('/api/admin/login')
+      .send({ password: process.env.API_TOKEN });
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.token).toBeTruthy();
+    expect(res.body.data.token).not.toBe(process.env.API_TOKEN);
+  });
+
+  it('上传页公开接口不需要 API_TOKEN', async () => {
+    const res = await request(app).get('/api/points');
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+  });
 });
 
 describe('管理员点位列表筛选', () => {
@@ -235,11 +272,17 @@ describe('管理员批量下载接口', () => {
     return res.body.data.ticket;
   }
 
-  it('无票据返回 403', async () => {
+  it('无票据且无管理凭证返回 403', async () => {
+    const res = await request(app).get('/api/admin/batch-download?type=img');
+    expect(res.status).toBe(403);
+  });
+
+  it('登录会话可直接请求批量下载，无需票据', async () => {
     const res = await request(app)
       .get('/api/admin/batch-download?type=img')
       .set('Authorization', `Bearer ${token}`);
-    expect(res.status).toBe(403);
+    // 测试库没有可打包素材，鉴权通过后返回 404
+    expect(res.status).toBe(404);
   });
 
   it('无效票据返回 403', async () => {
@@ -323,12 +366,18 @@ describe('管理员统计表格下载接口', () => {
     return res.body.data.ticket;
   }
 
-  it('无票据返回 403', async () => {
+  it('无票据且无管理凭证返回 403', async () => {
+    const res = await request(app).get('/api/admin/stats-csv');
+    expect(res.status).toBe(403);
+    expect(res.body.success).toBe(false);
+  });
+
+  it('登录会话可直接导出统计 CSV，无需票据', async () => {
     const res = await request(app)
       .get('/api/admin/stats-csv')
       .set('Authorization', `Bearer ${token}`);
-    expect(res.status).toBe(403);
-    expect(res.body.success).toBe(false);
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/text\/csv/);
   });
 
   it('无效票据返回 403', async () => {
