@@ -1,7 +1,7 @@
 /**
  * 视频上传面板
  * 仅 mp4，不限上传数量，单文件上限 80MB（可通过后端环境变量 VIDEO_MAX_SIZE_MB 配置）
- * 视频时长必须 ≥ 10 秒，低于 10 秒不允许上传
+ * 视频时长必须 ≥ 5 秒，低于 5 秒不允许上传
  * 不做任何压缩，分片上传；支持点击多选与拖放，队列串行上传
  */
 import { useState, useRef, useEffect, useCallback } from 'react';
@@ -139,7 +139,7 @@ export default function VideoUploadPanel({
         continue;
       }
 
-      // 校验视频时长：必须 ≥ 10 秒
+      // 校验视频时长：必须 ≥ 5 秒
       try {
         const { ok, duration } = await checkVideoDuration(file);
         if (!ok) {

@@ -1,13 +1,13 @@
 /**
  * 视频时长校验工具
- * 要求上传的视频时长 ≥ 10 秒，低于 10 秒不允许上传
+ * 要求上传的视频时长 ≥ 5 秒，低于 5 秒不允许上传
  */
 
 /** 最小允许时长（秒） */
-export const MIN_VIDEO_DURATION = 10;
+export const MIN_VIDEO_DURATION = 5;
 
 /**
- * 判断视频时长是否满足要求（≥ 10 秒）
+ * 判断视频时长是否满足要求（≥ 5 秒）
  */
 export function isDurationValid(duration: number): boolean {
   return duration >= MIN_VIDEO_DURATION;

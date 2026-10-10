@@ -571,10 +571,10 @@ describe('上传流程 - 多分片视频合并', () => {
     expect(fileBuf.equals(mp4Buf)).toBe(true);
   });
 
-  it('短视频（< 10秒）被拒绝', async () => {
+  it('短视频（< 5秒）被拒绝', async () => {
     const pointId = '11';
     const fileId = `fid-short-${Date.now()}`;
-    const buf = makeShortMp4(5); // 5 秒短视频
+    const buf = makeShortMp4(3); // 3 秒短视频
 
     await request(app)
       .post('/api/upload/chunk')
@@ -592,8 +592,8 @@ describe('上传流程 - 多分片视频合并', () => {
 
     expect(res.status).toBe(400);
     expect(res.body.success).toBe(false);
-    expect(res.body.error).toContain('10 秒');
-    expect(res.body.error).toContain('5.0 秒');
+    expect(res.body.error).toContain('5 秒');
+    expect(res.body.error).toContain('3.0 秒');
 
     // 验证数据库未写入
     const detailRes = await request(app)

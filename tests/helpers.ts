@@ -129,15 +129,15 @@ export function makeMp4WithBoxBeforeMvhd(paddingBytes: number, durationSeconds =
   return makeMp4Buffer(durationSeconds, free);
 }
 
-/** 生成符合时长要求（≥ 10 秒）的 MP4 buffer */
+/** 生成符合时长要求（≥ 5 秒）的 MP4 buffer */
 export function makeValidMp4(durationSeconds = 15): Buffer {
   return makeMp4Buffer(durationSeconds);
 }
 
 /**
- * 生成不符合时长要求（< 10 秒）的 MP4 buffer
+ * 生成不符合时长要求（< 5 秒）的 MP4 buffer
  */
-export function makeShortMp4(durationSeconds = 5): Buffer {
+export function makeShortMp4(durationSeconds = 3): Buffer {
   return makeMp4Buffer(durationSeconds);
 }
 

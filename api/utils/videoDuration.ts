@@ -18,10 +18,10 @@
 import fs from 'fs';
 
 /** 最小允许时长（秒） */
-export const MIN_VIDEO_DURATION = 10;
+export const MIN_VIDEO_DURATION = 5;
 
 /**
- * 判断视频时长是否满足要求（≥ 10 秒）
+ * 判断视频时长是否满足要求（≥ 5 秒）
  */
 export function isDurationValid(duration: number): boolean {
   return duration >= MIN_VIDEO_DURATION;

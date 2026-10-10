@@ -392,7 +392,7 @@ router.post('/complete', async (req, res, next) => {
       }
 
       // ── 步骤2.6：视频时长校验（防御性，前端已校验） ──
-      // 要求时长 ≥ 10 秒，低于 10 秒拒绝入库，避免脏数据落盘
+      // 要求时长 ≥ 5 秒，低于 5 秒拒绝入库，避免脏数据落盘
       if (!isImageType(type)) {
         const duration = getVideoDuration(tmpFilePath);
         if (duration === null) {

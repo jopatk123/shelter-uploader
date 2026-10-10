@@ -93,18 +93,18 @@ describe('videoDuration 工具函数', () => {
   });
 
   describe('isDurationValid', () => {
-    it('10 秒通过', () => {
-      expect(isDurationValid(10)).toBe(true);
+    it('5 秒通过', () => {
+      expect(isDurationValid(5)).toBe(true);
     });
 
-    it('超过 10 秒通过', () => {
+    it('超过 5 秒通过', () => {
       expect(isDurationValid(15)).toBe(true);
       expect(isDurationValid(30)).toBe(true);
     });
 
-    it('低于 10 秒不通过', () => {
-      expect(isDurationValid(5)).toBe(false);
-      expect(isDurationValid(9.9)).toBe(false);
+    it('低于 5 秒不通过', () => {
+      expect(isDurationValid(3)).toBe(false);
+      expect(isDurationValid(4.9)).toBe(false);
     });
 
     it('零或负值不通过', () => {
@@ -114,8 +114,8 @@ describe('videoDuration 工具函数', () => {
   });
 
   describe('MIN_VIDEO_DURATION 常量', () => {
-    it('值为 10', () => {
-      expect(MIN_VIDEO_DURATION).toBe(10);
+    it('值为 5', () => {
+      expect(MIN_VIDEO_DURATION).toBe(5);
     });
   });
 });
