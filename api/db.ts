@@ -180,7 +180,7 @@ export function initDatabase() {
   // 旧结构迁移：point_material（四列固定槽位）→ material（多行）
   migrateLegacyMaterials();
 
-  // 导入141条固定点位数据（如不存在）
+  // 导入141条固定点位数据（如不存在）。已存在的行不会被 INSERT OR IGNORE 改写。
   const insertPoint = db.prepare(
     `INSERT OR IGNORE INTO point_info
        (id, name, city, district, township, location, station, capacity, lon, lat, remark)
@@ -204,6 +204,36 @@ export function initDatabase() {
     }
   });
   importAll();
+
+  // 生产库通常只在首次启动插入点位，种子里的经纬度勘误必须再按 id 回写。
+  syncPointCoordinates();
+}
+
+/**
+ * 按种子数据同步已入库点位的经纬度。
+ *
+ * 坐标系与种子数据一致（WGS84）。只更新 point_info.lon / point_info.lat，
+ * 不修改名称、行政区划、容量、备注，也不读写 material 表。
+ * 幂等：经纬度已与种子相同的行不改写，重复启动结果不变。
+ */
+function syncPointCoordinates(): void {
+  const updateCoord = db.prepare(
+    `UPDATE point_info
+        SET lon = ?, lat = ?
+      WHERE id = ?
+        AND (lon != ? OR lat != ?)`,
+  );
+  const changed = db.transaction(() => {
+    let count = 0;
+    for (const p of POINTS_DATA) {
+      const result = updateCoord.run(p.lon, p.lat, p.id, p.lon, p.lat);
+      count += result.changes;
+    }
+    return count;
+  })();
+  if (changed > 0) {
+    console.log(`[db] 已按种子数据更新 ${changed} 个点位的经纬度（仅 lon/lat）`);
+  }
 }
 
 /**
